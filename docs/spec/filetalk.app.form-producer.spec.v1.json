@@ -1,0 +1,604 @@
+{
+  "document": {
+    "document-id": "filetalk.app.form-producer.spec.v1",
+    "title": "FileTalk Form Producer (Tk) — Program Specification",
+    "purpose": "Specify a small utility application that turns a textual form-spec DSL into a live Tkinter form, then emits Patchboard/FileTalk messages as JSON files into an OUTBOX directory.",
+    "created": "2026-02-22",
+    "authors": ["Lion Kimbro", "ChatGPT (Wing-Cat)"],
+    "status": "draft",
+    "scope": "application spec (producer-first; consumer-later-friendly)"
+  },
+  "references": {
+    "patchboard_core_message_spec": {
+      "document_id": "patchboard.spec.messages.core.v1",
+      "required_fields": ["channel", "signal", "timestamp"],
+      "notes": [
+        "channel must be treated as opaque by sender/receiver",
+        "signal carries all semantic meaning",
+        "timestamp is Unix time (seconds since epoch) represented as a string; fractional seconds are allowed"
+      ]
+    },
+    "file_transport_profile": {
+      "documentid": "patchboard.spec.messages.file-transport.v1",
+      "directory_conventions": ["OUTBOX", "INCOMING"],
+      "write_completion_invariant": "A message file is considered complete when it can be parsed as a valid JSON object."
+    }
+  },
+  "program": {
+    "name": "FileTalk Form Producer",
+    "short_name": "form-producer",
+    "tagline": "Type a form spec, render it instantly, emit FileTalk messages.",
+    "primary_role": "FileTalk producer",
+    "secondary_role": "Optional future consumer (not implemented in v1; design reserves extension points)."
+  },
+  "core_idea": {
+    "summary": "The user writes a form-spec DSL in the top text area. Pressing Ctrl+Enter parses the DSL and renders widgets in the bottom pane. Pressing Ctrl+S collects values, validates them, forms a Patchboard core message object, and writes it to OUTBOX as <uuid-v4>.json.",
+    "non_goal": "This application does not define routing semantics, bus behavior, delivery guarantees, acknowledgments, or consumer coordination; it only writes messages to filesystem transport in compliance with the referenced specs."
+  },
+  "defaults": {
+    "channel": "output",
+    "outbox_directory_name": "OUTBOX",
+    "filename_format": "<uuid-v4>.json",
+    "encoding": "UTF-8",
+    "line_endings": "platform-default",
+    "timestamp_format": {
+      "type": "string",
+      "content": "Unix time in seconds since epoch; may include fractional seconds",
+      "recommended_generation": "str(time.time())"
+    }
+  },
+  "configuration": {
+    "configuration_model": "config-file optional; CLI optional; directives in DSL supported",
+    "sources_in_precedence_order": [
+      "command_line",
+      "environment_variables",
+      "config_file",
+      "dsl_directives",
+      "built_in_defaults"
+    ],
+    "environment_variables": {
+      "FORM_PRODUCER_OUTBOX": {
+        "type": "string",
+        "description": "If set, overrides resolved OUTBOX path."
+      },
+      "FORM_PRODUCER_CHANNEL": {
+        "type": "string",
+        "description": "If set, overrides default channel."
+      }
+    },
+    "command_line_interface": {
+      "status": "optional",
+      "arguments": {
+        "--outbox": {
+          "type": "string",
+          "description": "Override OUTBOX path."
+        },
+        "--channel": {
+          "type": "string",
+          "description": "Override default output channel."
+        },
+        "--spec": {
+          "type": "string",
+          "description": "Path to a DSL spec to load into the top pane on startup."
+        }
+      },
+      "notes": [
+        "CLI is not required for v1 functionality but is permitted by the spec for convenience.",
+        "If CLI is absent, the app must still be fully usable via UI."
+      ]
+    },
+    "dsl_directives": {
+      "supported_directives": {
+        "channel": {
+          "syntax": "# channel: <string>",
+          "description": "Overrides message.channel for emitted messages.",
+          "default": "output",
+          "constraints": [
+            "Must be a string after trimming whitespace",
+            "No semantic interpretation is required or implied by this application"
+          ]
+        },
+        "outbox": {
+          "syntax": "# outbox: <path>",
+          "description": "Overrides resolved OUTBOX directory path.",
+          "constraints": [
+            "May be relative or absolute",
+            "If relative, it is resolved relative to the process working directory",
+            "Must be creatable if it does not exist"
+          ]
+        }
+      },
+      "comment_lines": {
+        "description": "Lines starting with # that are not recognized directives are treated as comments and ignored.",
+        "preservation": "Comments remain in the top pane and are not removed by parsing."
+      }
+    }
+  },
+  "user_interface": {
+    "ui_framework": "tkinter (+ ttk permitted for combobox)",
+    "window": {
+      "title": "FileTalk Form Producer",
+      "minimum_size": [700, 500],
+      "resizability": "both",
+      "layout": "vertical split-pane"
+    },
+    "panes": {
+      "top_pane": {
+        "type": "Text",
+        "role": "Form-spec DSL editor",
+        "features": {
+          "monospace_recommended": true,
+          "tab_width": "implementation-defined",
+          "supports_paste": true,
+          "supports_select_all": true
+        }
+      },
+      "bottom_pane": {
+        "type": "Frame (scrollable recommended)",
+        "role": "Rendered form area",
+        "layout_model": {
+          "rows": "one per field",
+          "columns": [
+            {
+              "name": "label",
+              "weight": 0,
+              "sticky": "w"
+            },
+            {
+              "name": "control",
+              "weight": 1,
+              "sticky": "ew"
+            }
+          ],
+          "padding": "implementation-defined"
+        },
+        "scrolling": {
+          "recommended": true,
+          "justification": "Forms may be taller than the window."
+        }
+      },
+      "status_bar": {
+        "type": "Label",
+        "role": "Transient feedback (parse errors, validation errors, write success)",
+        "behavior": {
+          "success_messages_auto_clear_seconds": 4,
+          "error_messages_persist_until_next_action": true
+        }
+      }
+    },
+    "key_bindings": {
+      "ctrl_enter": {
+        "action": "parse_and_render",
+        "scope": "when focus is in top pane or anywhere in window"
+      },
+      "ctrl_s": {
+        "action": "validate_and_emit",
+        "scope": "when focus is anywhere in window"
+      },
+      "ctrl_l": {
+        "action": "clear_status",
+        "scope": "anywhere",
+        "notes": "Optional quality-of-life binding."
+      }
+    },
+    "rendered_field_presentation": {
+      "label_text": "identifier",
+      "label_format": "identifier + ':'",
+      "identifier_style": "monospace recommended; exact styling implementation-defined",
+      "field_spacing": "implementation-defined",
+      "widget_width_height_semantics": {
+        "Entry.width": "character units",
+        "Text.width_height": "character units and line units respectively",
+        "Combobox.width": "character units; may be derived from max choice length"
+      }
+    }
+  },
+  "dsl": {
+    "name": "FormSpec DSL",
+    "version": "v1",
+    "line_structure": {
+      "blank_lines": "ignored",
+      "comment_lines": "ignored unless directive",
+      "field_lines": "identifier -- type_spec [optional inline comment]"
+    },
+    "field_line_grammar": {
+      "splitter": "--",
+      "identifier": {
+        "definition": "Left side of '--' after trimming whitespace",
+        "constraints": [
+          "Must be non-empty",
+          "Must be unique within the spec",
+          "Must be a valid JSON object key (string)",
+          "Recommended: /^[A-Za-z_][A-Za-z0-9_-]*$/ (not mandatory unless strict mode is enabled)"
+        ]
+      },
+      "type_spec": {
+        "definition": "Right side of '--' after trimming whitespace and removing any trailing inline comment segment",
+        "inline_comment": {
+          "supported": true,
+          "marker": "#",
+          "rule": "If '#' appears in the type_spec region, everything from '#' to end-of-line is ignored (unless within a choice list where '#' is treated literally only if escaped; escape rules are optional in v1)."
+        }
+      }
+    },
+    "type_system": {
+      "types": {
+        "str": {
+          "syntax": "str<width>",
+          "parameters": {
+            "width": { "type": "int", "min": 1, "max": 4096 }
+          },
+          "widget": "Entry",
+          "value_model": "string",
+          "validation": {
+            "on_save": "always passes (string)",
+            "optional": [
+              "max_length enforcement may be applied (recommended)",
+              "trim whitespace may be offered as a toggle (default off)"
+            ]
+          }
+        },
+        "text": {
+          "syntax": "text<width,height>",
+          "parameters": {
+            "width": { "type": "int", "min": 1, "max": 4096 },
+            "height": { "type": "int", "min": 1, "max": 4096 }
+          },
+          "widget": "Text",
+          "value_model": "string",
+          "validation": { "on_save": "always passes (string)" }
+        },
+        "choice": {
+          "syntax": "choice<item1,item2,...>",
+          "parameters": {
+            "items": {
+              "type": "list[string]",
+              "min_length": 1,
+              "constraints": [
+                "Items are trimmed of surrounding whitespace",
+                "Empty items are invalid"
+              ]
+            }
+          },
+          "widget": "ttk.Combobox",
+          "value_model": "string",
+          "validation": {
+            "on_save": [
+              "Value must be one of the listed items unless combobox is configured editable (default non-editable recommended)."
+            ],
+            "default_value_rule": "First item is selected by default unless otherwise implemented."
+          }
+        },
+        "bool": {
+          "syntax": "bool",
+          "parameters": {},
+          "widget": "Checkbutton",
+          "value_model": "boolean",
+          "validation": { "on_save": "always passes" },
+          "default_value": false
+        },
+        "int": {
+          "syntax": "int<width>",
+          "parameters": {
+            "width": { "type": "int", "min": 1, "max": 4096 }
+          },
+          "widget": "Entry",
+          "value_model": "integer",
+          "validation": {
+            "on_save": [
+              "Empty string is invalid unless optional-field support is added (not in v1)",
+              "Must parse as base-10 integer (leading/trailing whitespace allowed but trimmed)"
+            ],
+            "recommended_widget_validation": "Entry key validation may restrict to [-]?[0-9]* but must still validate on save."
+          }
+        },
+        "float": {
+          "syntax": "float<width>",
+          "parameters": {
+            "width": { "type": "int", "min": 1, "max": 4096 }
+          },
+          "widget": "Entry",
+          "value_model": "number",
+          "validation": {
+            "on_save": [
+              "Empty string is invalid unless optional-field support is added (not in v1)",
+              "Must parse as a floating-point number (Python float parsing is acceptable)",
+              "NaN and Infinity handling is implementation-defined; recommended: disallow"
+            ]
+          }
+        },
+        "json": {
+          "syntax": "json<width,height>",
+          "parameters": {
+            "width": { "type": "int", "min": 1, "max": 4096 },
+            "height": { "type": "int", "min": 1, "max": 4096 }
+          },
+          "widget": "Text",
+          "value_model": "any_json",
+          "validation": {
+            "on_save": [
+              "Text content must parse as JSON using a standards-compliant JSON parser",
+              "Resulting value may be object, array, string, number, boolean, or null",
+              "Empty string is invalid (must be valid JSON; for empty object use '{}')"
+            ],
+            "error_reporting": "On parse failure, show message including field identifier and parser error position if available."
+          }
+        }
+      },
+      "unknown_type_behavior": {
+        "parse_time": "Unknown types cause parse failure; form is not rendered.",
+        "message": "TypeError: unknown type_spec"
+      }
+    },
+    "examples": {
+      "minimal": {
+        "dsl": "name -- str<30>\nnotes -- text<60,5>\n"
+      },
+      "with_directives": {
+        "dsl": "# channel: my-channel\n# outbox: ./OUTBOX\nname -- str<30>\npayload -- json<60,20>\npriority -- choice<low,medium,high>\n"
+      }
+    }
+  },
+  "runtime_behavior": {
+    "parse_and_render": {
+      "trigger": "Ctrl+Enter",
+      "steps": [
+        "Read full top-pane text as UTF-8 string in memory",
+        "Scan for directives (# channel:, # outbox:) and record effective overrides",
+        "Parse field lines into an ordered list of field specifications",
+        "If any parse errors occur: do not modify the current rendered form; show error in status bar",
+        "If parse succeeds: destroy previous form widgets (if any) and render new widgets according to the parsed field list",
+        "Initialize widget default values according to type rules (choice selects first item; bool unchecked; others empty)",
+        "Set focus to the first rendered widget (recommended)"
+      ],
+      "idempotence": "Repeated parse_and_render calls replace the rendered form, preserving no prior values unless explicit state retention is added (not required in v1).",
+      "recommended_option": {
+        "preserve_values_if_identifiers_match": {
+          "status": "optional",
+          "description": "If the new spec contains identifiers that were present previously, copy old values into the new widgets when type compatibility allows."
+        }
+      }
+    },
+    "validate_and_emit": {
+      "trigger": "Ctrl+S",
+      "preconditions": [
+        "A successfully parsed spec must exist (rendered form present). If none exists, show status error: 'No form rendered. Press Ctrl+Enter first.'"
+      ],
+      "steps": [
+        "Collect raw values from each widget in the rendered form",
+        "Convert/validate according to field type rules (int/float/json require parsing)",
+        "On first validation failure: focus failing widget; show error; do not emit any file",
+        "If all fields validate: build signal object as {identifier: value, ...} preserving field order only for UI; JSON object order is not semantically meaningful",
+        "Build message object with required Patchboard core fields: {channel, timestamp, signal}",
+        "Resolve effective channel (directive override if present else configured else default 'output')",
+        "Resolve effective OUTBOX path (directive override if present else configured else './OUTBOX' or environment/CLI override if used)",
+        "Ensure OUTBOX directory exists (create if needed; on failure show error)",
+        "Generate filename as <uuid-v4>.json",
+        "Write message file directly to OUTBOX as UTF-8 JSON",
+        "On success: show status 'Wrote OUTBOX/<uuid>.json' (path may be abbreviated); do not clear form values by default"
+      ],
+      "message_object_schema": {
+        "channel": "string",
+        "timestamp": "string",
+        "signal": "any_json"
+      }
+    }
+  },
+  "file_output": {
+    "directory": {
+      "default_outbox_path_resolution": {
+        "rule": "If no outbox override is provided, the app uses a directory named OUTBOX relative to the current working directory.",
+        "creation": "If OUTBOX does not exist, create it (including parents)."
+      },
+      "constraints": [
+        "App writes only to OUTBOX (and optionally to a config file if implemented).",
+        "App does not read INCOMING in v1."
+      ]
+    },
+    "filename": {
+      "format": "<uuid-v4>.json",
+      "uuid_version": 4,
+      "uniqueness": "UUID v4 provides practical uniqueness; no additional collision handling is required beyond failure-on-exists (rare)."
+    },
+    "json_encoding": {
+      "encoding": "UTF-8",
+      "formatting": {
+        "pretty_print": "implementation-defined; recommended: compact",
+        "ensure_ascii": false,
+        "newline_at_eof": "recommended true"
+      }
+    },
+    "write_semantics": {
+      "transport_profile_alignment": [
+        "File may become visible before it is complete",
+        "Completion is defined as parseable JSON"
+      ],
+      "atomicity": {
+        "discouraged": "Temporary file + rename is discouraged by the file-transport profile; the app should write directly to the final filename.",
+        "note": "Direct-write means a consumer may observe partial content; consumers must retry until parseable."
+      }
+    }
+  },
+  "error_handling": {
+    "parse_errors": {
+      "categories": [
+        "Missing '--' separator on a non-comment, non-blank line",
+        "Empty identifier",
+        "Duplicate identifier",
+        "Unknown type",
+        "Malformed type parameters (missing <>, wrong arity, non-integer width/height, empty choice list)"
+      ],
+      "reporting": {
+        "status_bar": true,
+        "recommended_detail": "Include line number (1-based) and a short reason",
+        "non_goal": "No requirement to highlight exact text span in v1 (optional)."
+      }
+    },
+    "validation_errors": {
+      "categories": [
+        "int parse failure",
+        "float parse failure",
+        "json parse failure",
+        "choice value not in items (if non-editable combobox)",
+        "missing rendered form"
+      ],
+      "reporting": {
+        "status_bar": true,
+        "focus_widget": "required",
+        "optional": "Show a modal dialog for json parse errors with position info"
+      }
+    },
+    "filesystem_errors": {
+      "categories": [
+        "Cannot create OUTBOX directory",
+        "Cannot write file (permissions, disk full)",
+        "Filename collision (very unlikely)"
+      ],
+      "reporting": {
+        "status_bar": true,
+        "recommended": "Include OS error message"
+      }
+    }
+  },
+  "security_and_safety": {
+    "principles": [
+      "The application does not execute code from the DSL.",
+      "The DSL is declarative and only instantiates Tk widgets with bounded parameters.",
+      "The application only writes JSON files to a specified directory."
+    ],
+    "path_handling": {
+      "outbox_directive_risk": "Allowing # outbox: accepts arbitrary paths; this is intentional. The app should not silently write elsewhere without explicit user direction.",
+      "recommended_guard": "Show the resolved OUTBOX path somewhere in the UI (status bar or small label)."
+    },
+    "json_parsing": {
+      "rule": "Use a standard JSON parser; do not allow comments or trailing commas in json<...> fields unless explicitly extended later."
+    }
+  },
+  "extensibility": {
+    "future_consumer_mode": {
+      "status": "not implemented in v1",
+      "reserved_design": [
+        "A toggle or CLI flag may allow reading INCOMING messages and pre-filling the form or applying patches.",
+        "Consumer coordination is explicitly out of scope of this app unless layered by another profile."
+      ]
+    },
+    "future_dsl_features": {
+      "optional_fields": {
+        "proposal": "suffix '?' indicates optional: e.g., age? -- int<10>",
+        "v1_status": "not required"
+      },
+      "defaults": {
+        "proposal": "use '=': priority -- choice<low,medium,high>=medium; count -- int<10>=0",
+        "v1_status": "not required"
+      },
+      "required_marker": {
+        "proposal": "suffix '!': name! -- str<30>",
+        "v1_status": "not required (v1 assumes required unless optional system exists)"
+      },
+      "labels": {
+        "proposal": "identifier|Label Text -- str<30>",
+        "v1_status": "not required"
+      },
+      "grouping_and_sections": {
+        "proposal": "blank-line-separated sections or '# section:' directives",
+        "v1_status": "not required"
+      }
+    },
+    "future_type_extensions": {
+      "date": { "proposal": "date<10> with YYYY-MM-DD validation" },
+      "enum_json": { "proposal": "choice_json<...> that emits mapped JSON values rather than strings" },
+      "multichoice": { "proposal": "multichoice<...> with list output" }
+    }
+  },
+  "invariants": {
+    "message_core_compliance": [
+      "Every emitted file contains exactly one JSON object at top-level",
+      "That object includes required fields: channel, signal, timestamp",
+      "channel is always a string",
+      "timestamp is always a string representing Unix time seconds (fractional allowed)",
+      "signal is always valid JSON (as produced by the application’s internal structure and json<...> parsing)"
+    ],
+    "channel_opacity": [
+      "The app treats channel as an opaque string and does not interpret it for routing or semantics."
+    ],
+    "transport_profile_alignment": [
+      "Emitted filename uniqueness is satisfied via UUID v4",
+      "Emitted file extension is .json",
+      "Emitted encoding is UTF-8",
+      "Emitted file is considered complete when parseable JSON (consistent with consumer expectations)"
+    ]
+  },
+  "quality_requirements": {
+    "performance": {
+      "expected_scale": "Forms with up to ~200 fields should remain interactive",
+      "parse_time": "Should feel instant (<200ms typical) for normal forms",
+      "notes": "Parsing is simple string processing; performance is not expected to be limiting."
+    },
+    "usability": {
+      "status_visibility": "User should always be able to tell whether Ctrl+Enter succeeded and where Ctrl+S wrote the file.",
+      "error_actionability": "Errors must name the identifier and type causing the error when possible.",
+      "no_surprises": "No automatic deletion of output files; no automatic clearing of form values by default."
+    },
+    "portability": {
+      "platforms": ["Windows", "Linux", "macOS"],
+      "python_version": "implementation-defined; recommended >= 3.10"
+    }
+  },
+  "testing": {
+    "unit_tests_recommended": {
+      "parser": [
+        "parses blank lines and comments",
+        "parses directives correctly",
+        "rejects missing '--'",
+        "rejects duplicate identifiers",
+        "parses str<int>, text<int,int>, choice<...>, int<int>, float<int>, bool, json<int,int>"
+      ],
+      "validators": [
+        "int parsing trims whitespace and rejects non-integers",
+        "float parsing rejects NaN/Inf if configured to disallow",
+        "json parsing rejects empty and malformed JSON"
+      ],
+      "emitter": [
+        "emits uuid filename ending with .json",
+        "emits valid JSON object with required keys",
+        "channel defaults to 'output' if unset",
+        "outbox creation behavior"
+      ]
+    },
+    "manual_test_scenarios": [
+      {
+        "name": "Happy path",
+        "steps": [
+          "Enter DSL",
+          "Ctrl+Enter renders form",
+          "Fill fields",
+          "Ctrl+S emits OUTBOX/<uuid>.json",
+          "Open file and confirm parseable JSON with required fields"
+        ]
+      },
+      {
+        "name": "json field error",
+        "steps": [
+          "Define payload -- json<60,10>",
+          "Enter malformed JSON",
+          "Ctrl+S blocks with error and focuses payload control",
+          "Fix JSON and re-save"
+        ]
+      }
+    ]
+  },
+  "open_questions": {
+    "strict_identifier_validation": {
+      "question": "Should identifiers be enforced to a strict regex, or merely non-empty unique strings?",
+      "default_in_this_spec": "Recommended regex, not required."
+    },
+    "float_nan_inf_policy": {
+      "question": "Should NaN/Infinity be rejected by default?",
+      "default_in_this_spec": "Recommended reject, but implementation-defined."
+    },
+    "inline_comment_escape_rules_for_choice": {
+      "question": "If a choice item contains '#', do we need escape rules?",
+      "default_in_this_spec": "Not required in v1."
+    }
+  }
+}

@@ -1,0 +1,10 @@
+date: 2026-02-22
+title: Template First-Use Checklist
+
+1. populate docs/conversations/conversations-track.txt
+2. add specs to docs/spec
+3. edit pyproject.toml
+4. edit inventory.json (via librarian or by hand)
+
+9. delete this file
+

@@ -1,0 +1,28 @@
+{
+  "inventory": {
+    "filetalk.app.form-producer.spec.v1": {
+      "document-id": "filetalk.app.form-producer.spec.v1",
+      "filepath": "F:/lion/github/patchboard-form-producer/docs/spec/filetalk.app.form-producer.spec.v1.json",
+      "title": "FileTalk Form Producer (Tk) — Program Specification",
+      "purpose": "Specify a small utility application that turns a textual form-spec DSL into a live Tkinter form, then emits Patchboard/FileTalk messages as JSON files into an OUTBOX directory."
+    },
+    "patchboard.spec.messages.core.v1": {
+      "document-id": "patchboard.spec.messages.core.v1",
+      "filepath": "F:/lion/github/filetalk/docs/spec/patchboard-core.v1.json",
+      "title": "Patchboard Core Message Specification",
+      "purpose": "Define the Patchboard system, and the core Patchboard message in particular."
+    },
+    "patchboard.spec.messages.file-transport.v1": {
+      "document-id": "patchboard.spec.messages.file-transport.v1",
+      "filepath": "F:/lion/github/filetalk/docs/spec/patchboard-file-transport.v1.json",
+      "title": "Patchboard File Transport Profile",
+      "purpose": "Documents how Patchboard messages transport on the filesystem."
+    },
+    "lionsphilosophyofprogramming.2025.simplified": {
+      "document-id": "lionsphilosophyofprogramming.2025.simplified",
+      "filepath": "F:/lion/github/lions-documents/coding-guidelines/v2026-01-14_part2_lions-philosophy-of-programming_simplified.json",
+      "title": "Lion's Python Programming Guidelines (2025) -- Simplified Edition",
+      "purpose": "simplified JSON version, for use by LLM programming agents"
+    }
+  }
+}

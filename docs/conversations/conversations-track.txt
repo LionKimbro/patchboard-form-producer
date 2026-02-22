@@ -1,0 +1,64 @@
+date: 2026-02-22
+title: Patchboard Form Producer - Conversations Tracking
+
+
+== Overall Architecture ==
+date: 2026-02-22
+github: https://github.com/LionKimbro/patchboard-form-producer
+
+  FRM-ARCH: Architecture
+  * summaries               High-level space: * continuity                 * design philosophy
+  * decisions                                 * architectural decisions    * architectural evolution
+  * stabilized insights                       * system-level direction     * major decisions
+                                              * invariant reasoning        * ental model
+                                                                           * corrections
+                                                                           * system topology
+
+  Specialized Working Threads
+  * FRM-FIRST    First Build
+    FRM-EFFECTS  Effects Execution
+    FRM-ENG      Core Engine ("Reducer")
+    FRM-WORKER   Worker Thread
+    FRM-UI       User Interface
+    FRM-FILES    Clipboard & Files
+    FRM-TEST     Automated Testing
+    FRM-PACKAGE  Packaging
+    FRM-AWS      AWS in General
+    FRM-MQTT     AWS MQTT
+    FRM-S3       AWS S3
+    FRM-CONN     AWS ConnSrv
+    FRM-CONVO    Conversation about the Conversation
+
+
+  To-Do Threads
+    FRM-TODO
+
+
+  Sandbox Threads       * disposable scratch threads
+    FRM-LAB-1           * large quantities of code
+    FRM-LAB-2           * trial architectures
+    ...                 * temporary confusions
+                        * emotional or free thinking
+                        * summarize back into Arch later
+                        * NEVER canoncial
+
+
+
+== Conversational Header Design ==
+date: 2026-02-22
+
+{
+  "building": "Patchboard Form Producer,
+  "conversation-symbol": "FRM-FIRST",
+  "conversation-title": "First Build",
+  "form": "exploratory"
+}
+
+
+== Links Log ==
+date: 2026-02-22
+
+pre-conversation: https://chatgpt.com/c/699b8991-cb10-832e-b455-267325a116ed -- exploratory
+FRM-FIRST: https://chatgpt.com/c/699b8991-cb10-832e-b455-267325a116ed
+
+
