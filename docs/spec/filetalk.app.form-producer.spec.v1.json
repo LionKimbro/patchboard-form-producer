@@ -4,14 +4,21 @@
     "title": "FileTalk Form Producer (Tk) — Program Specification",
     "purpose": "Specify a small utility application that turns a textual form-spec DSL into a live Tkinter form, then emits Patchboard/FileTalk messages as JSON files into an OUTBOX directory.",
     "created": "2026-02-22",
-    "authors": ["Lion Kimbro", "ChatGPT (Wing-Cat)"],
+    "authors": [
+      "Lion Kimbro",
+      "ChatGPT (Wing-Cat)"
+    ],
     "status": "draft",
     "scope": "application spec (producer-first; consumer-later-friendly)"
   },
   "references": {
     "patchboard_core_message_spec": {
       "document_id": "patchboard.spec.messages.core.v1",
-      "required_fields": ["channel", "signal", "timestamp"],
+      "required_fields": [
+        "channel",
+        "signal",
+        "timestamp"
+      ],
       "notes": [
         "channel must be treated as opaque by sender/receiver",
         "signal carries all semantic meaning",
@@ -20,7 +27,10 @@
     },
     "file_transport_profile": {
       "documentid": "patchboard.spec.messages.file-transport.v1",
-      "directory_conventions": ["OUTBOX", "INCOMING"],
+      "directory_conventions": [
+        "OUTBOX",
+        "INCOMING"
+      ],
       "write_completion_invariant": "A message file is considered complete when it can be parsed as a valid JSON object."
     }
   },
@@ -118,7 +128,10 @@
     "ui_framework": "tkinter (+ ttk permitted for combobox)",
     "window": {
       "title": "FileTalk Form Producer",
-      "minimum_size": [700, 500],
+      "minimum_size": [
+        700,
+        500
+      ],
       "resizability": "both",
       "layout": "vertical split-pane"
     },
@@ -208,17 +221,12 @@
         "constraints": [
           "Must be non-empty",
           "Must be unique within the spec",
-          "Must be a valid JSON object key (string)",
-          "Recommended: /^[A-Za-z_][A-Za-z0-9_-]*$/ (not mandatory unless strict mode is enabled)"
-        ]
+          "Must be representable as a JSON object key (string)"
+        ],
+        "explicit_policy": "No strict regex enforcement. Identifiers are treated as opaque strings (subject only to non-empty + unique constraints)."
       },
       "type_spec": {
-        "definition": "Right side of '--' after trimming whitespace and removing any trailing inline comment segment",
-        "inline_comment": {
-          "supported": true,
-          "marker": "#",
-          "rule": "If '#' appears in the type_spec region, everything from '#' to end-of-line is ignored (unless within a choice list where '#' is treated literally only if escaped; escape rules are optional in v1)."
-        }
+        "definition": "Right side of '--' after trimming whitespace and removing any trailing inline comment segment"
       }
     },
     "type_system": {
@@ -226,7 +234,11 @@
         "str": {
           "syntax": "str<width>",
           "parameters": {
-            "width": { "type": "int", "min": 1, "max": 4096 }
+            "width": {
+              "type": "int",
+              "min": 1,
+              "max": 4096
+            }
           },
           "widget": "Entry",
           "value_model": "string",
@@ -241,12 +253,22 @@
         "text": {
           "syntax": "text<width,height>",
           "parameters": {
-            "width": { "type": "int", "min": 1, "max": 4096 },
-            "height": { "type": "int", "min": 1, "max": 4096 }
+            "width": {
+              "type": "int",
+              "min": 1,
+              "max": 4096
+            },
+            "height": {
+              "type": "int",
+              "min": 1,
+              "max": 4096
+            }
           },
           "widget": "Text",
           "value_model": "string",
-          "validation": { "on_save": "always passes (string)" }
+          "validation": {
+            "on_save": "always passes (string)"
+          }
         },
         "choice": {
           "syntax": "choice<item1,item2,...>",
@@ -274,13 +296,19 @@
           "parameters": {},
           "widget": "Checkbutton",
           "value_model": "boolean",
-          "validation": { "on_save": "always passes" },
+          "validation": {
+            "on_save": "always passes"
+          },
           "default_value": false
         },
         "int": {
           "syntax": "int<width>",
           "parameters": {
-            "width": { "type": "int", "min": 1, "max": 4096 }
+            "width": {
+              "type": "int",
+              "min": 1,
+              "max": 4096
+            }
           },
           "widget": "Entry",
           "value_model": "integer",
@@ -295,23 +323,36 @@
         "float": {
           "syntax": "float<width>",
           "parameters": {
-            "width": { "type": "int", "min": 1, "max": 4096 }
+            "width": {
+              "type": "int",
+              "min": 1,
+              "max": 4096
+            }
           },
           "widget": "Entry",
           "value_model": "number",
           "validation": {
             "on_save": [
               "Empty string is invalid unless optional-field support is added (not in v1)",
-              "Must parse as a floating-point number (Python float parsing is acceptable)",
-              "NaN and Infinity handling is implementation-defined; recommended: disallow"
-            ]
+              "Must parse as a floating-point number",
+              "NaN and Infinity are rejected (recommended for JSON-friendly, predictable output)"
+            ],
+            "nan_inf_policy": "reject"
           }
         },
         "json": {
           "syntax": "json<width,height>",
           "parameters": {
-            "width": { "type": "int", "min": 1, "max": 4096 },
-            "height": { "type": "int", "min": 1, "max": 4096 }
+            "width": {
+              "type": "int",
+              "min": 1,
+              "max": 4096
+            },
+            "height": {
+              "type": "int",
+              "min": 1,
+              "max": 4096
+            }
           },
           "widget": "Text",
           "value_model": "any_json",
@@ -438,6 +479,7 @@
       "categories": [
         "int parse failure",
         "float parse failure",
+        "float is NaN or Infinity (rejected)",
         "json parse failure",
         "choice value not in items (if non-editable combobox)",
         "missing rendered form"
@@ -505,9 +547,15 @@
       }
     },
     "future_type_extensions": {
-      "date": { "proposal": "date<10> with YYYY-MM-DD validation" },
-      "enum_json": { "proposal": "choice_json<...> that emits mapped JSON values rather than strings" },
-      "multichoice": { "proposal": "multichoice<...> with list output" }
+      "date": {
+        "proposal": "date<10> with YYYY-MM-DD validation"
+      },
+      "enum_json": {
+        "proposal": "choice_json<...> that emits mapped JSON values rather than strings"
+      },
+      "multichoice": {
+        "proposal": "multichoice<...> with list output"
+      }
     }
   },
   "invariants": {
@@ -540,7 +588,11 @@
       "no_surprises": "No automatic deletion of output files; no automatic clearing of form values by default."
     },
     "portability": {
-      "platforms": ["Windows", "Linux", "macOS"],
+      "platforms": [
+        "Windows",
+        "Linux",
+        "macOS"
+      ],
       "python_version": "implementation-defined; recommended >= 3.10"
     }
   },
@@ -587,18 +639,14 @@
       }
     ]
   },
-  "open_questions": {
+  "decisions": {
     "strict_identifier_validation": {
-      "question": "Should identifiers be enforced to a strict regex, or merely non-empty unique strings?",
-      "default_in_this_spec": "Recommended regex, not required."
+      "decision": "Identifiers are non-empty unique strings; no regex enforcement.",
+      "rationale": "Identifiers are treated as opaque keys for JSON output; this keeps the DSL permissive and avoids unnecessary constraints."
     },
     "float_nan_inf_policy": {
-      "question": "Should NaN/Infinity be rejected by default?",
-      "default_in_this_spec": "Recommended reject, but implementation-defined."
-    },
-    "inline_comment_escape_rules_for_choice": {
-      "question": "If a choice item contains '#', do we need escape rules?",
-      "default_in_this_spec": "Not required in v1."
+      "decision": "Reject NaN and Infinity.",
+      "rationale": "Keeps emitted JSON predictable and avoids non-standard number representations."
     }
   }
 }
