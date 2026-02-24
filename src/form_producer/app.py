@@ -7,7 +7,7 @@ import os
 import subprocess
 import sys
 import tkinter as tk
-from tkinter import ttk
+from tkinter import filedialog, ttk
 
 from .parser import ParseError, parse_spec
 from .emitter import EmitError, build_message, emit_message
@@ -18,9 +18,9 @@ g = {}
 
 _STATUS_SUCCESS_MS = 4000
 
-_HINT_SYNTAX  = '<identifier> -- <type>   # channel <channel>   # outbox <path>'
-_HINT_TYPES   = 'str<w>  text<w,h>  choice<a,b,...>  bool  int<w>  float<w>  json<w,h>  date  time  "fixed value"'
-_HINT_KEYS    = "Ctrl+Enter: render form      Ctrl+S: save to OUTBOX"
+_HINT_SYNTAX = '<identifier> -- <type>   # channel <channel>   # outbox <path>'
+_HINT_TYPES  = 'str<w>  text<w,h>  choice<a,b,...>  bool  int<w>  float<w>  json<w,h>  date  time  "fixed value"'
+_HINT_KEYS   = 'Ctrl+Enter: render   Ctrl+E: emit   Ctrl+J: copy JSON   Ctrl+S: save file   Ctrl+O: open file'
 
 
 # ---------------------------------------------------------------------------
@@ -41,11 +41,14 @@ def run(config):
     g["widgets"] = {}       # {field_id: widget}
     g["vars"] = {}          # {field_id: BooleanVar} for checkbuttons
     g["status_clear_id"] = None
+    g["current_file"] = None  # path of the currently open spec file
 
     _setup_ui()
 
     if config.get("spec_path"):
         _load_spec_file(config["spec_path"])
+        g["current_file"] = config["spec_path"]
+        _update_title()
 
     g["root"].mainloop()
 
@@ -76,27 +79,46 @@ def _setup_ui():
     _build_bottom_bar(root)
 
     root.bind("<Control-Return>", handle_ctrl_enter)
-    root.bind("<Control-s>", handle_ctrl_s)
+    root.bind("<Control-e>", lambda e: handle_emit())
+    root.bind("<Control-j>", lambda e: handle_copy_json())
+    root.bind("<Control-s>", lambda e: handle_file_save())
+    root.bind("<Control-o>", lambda e: handle_file_open())
     root.bind("<Control-l>", handle_ctrl_l)
 
 
 def _build_menubar(root):
     menubar = tk.Menu(root)
 
+    file_menu = tk.Menu(menubar, tearoff=0)
+    file_menu.add_command(
+        label="Open",
+        underline=0,
+        accelerator="Ctrl+O",
+        command=handle_file_open,
+    )
+    file_menu.add_command(
+        label="Save",
+        underline=0,
+        accelerator="Ctrl+S",
+        command=handle_file_save,
+    )
+    menubar.add_cascade(label="File", menu=file_menu, underline=0)
+
     route_menu = tk.Menu(menubar, tearoff=0)
     route_menu.add_command(
         label="Emit to Patchboard",
         underline=0,
-        accelerator="Ctrl+S",
-        command=lambda: handle_ctrl_s(None),
+        accelerator="Ctrl+E",
+        command=handle_emit,
     )
     route_menu.add_command(
         label="Copy JSON",
         underline=0,
+        accelerator="Ctrl+J",
         command=handle_copy_json,
     )
-
     menubar.add_cascade(label="Route", menu=route_menu, underline=0)
+
     root.config(menu=menubar)
 
 
@@ -200,14 +222,14 @@ def handle_ctrl_enter(event):
     return "break"
 
 
-def handle_ctrl_s(event):
+def handle_emit():
     if g["fields"] is None:
         show_status("No form rendered — press Ctrl+Enter first.", error=True)
-        return "break"
+        return
 
     signal = _collect_values()
     if signal is None:
-        return "break"
+        return
 
     channel = _effective_channel()
     outbox = _effective_outbox()
@@ -216,10 +238,9 @@ def handle_ctrl_s(event):
         filename = emit_message(signal, channel, outbox)
     except EmitError as e:
         show_status(str(e), error=True)
-        return "break"
+        return
 
     show_status(f"Wrote {os.path.join(outbox, filename)}")
-    return "break"
 
 
 def handle_ctrl_l(event):
@@ -241,6 +262,34 @@ def handle_copy_json():
     g["root"].clipboard_clear()
     g["root"].clipboard_append(json_str)
     show_status("JSON copied to clipboard.")
+
+
+def handle_file_open():
+    path = filedialog.askopenfilename(
+        title="Open spec file",
+        filetypes=[("Text files", "*.txt"), ("All files", "*.*")],
+    )
+    if not path:
+        return
+    _load_spec_file(path)
+    g["current_file"] = path
+    _update_title()
+
+
+def handle_file_save():
+    if g["current_file"]:
+        _write_spec_file(g["current_file"])
+    else:
+        path = filedialog.asksaveasfilename(
+            title="Save spec file",
+            defaultextension=".txt",
+            filetypes=[("Text files", "*.txt"), ("All files", "*.*")],
+        )
+        if not path:
+            return
+        g["current_file"] = path
+        _update_title()
+        _write_spec_file(path)
 
 
 def handle_open_outbox():
@@ -461,6 +510,37 @@ def _effective_outbox():
 # Filesystem helpers
 # ---------------------------------------------------------------------------
 
+def _load_spec_file(path):
+    try:
+        with open(path, 'r', encoding='utf-8') as f:
+            content = f.read()
+    except OSError as e:
+        show_status(f"Could not open file: {e}", error=True)
+        return
+    g["top_text"].delete("1.0", "end")
+    g["top_text"].insert("1.0", content)
+    show_status(f"Opened {path}")
+
+
+def _write_spec_file(path):
+    content = g["top_text"].get("1.0", "end-1c")
+    try:
+        with open(path, 'w', encoding='utf-8') as f:
+            f.write(content)
+    except OSError as e:
+        show_status(f"Could not save file: {e}", error=True)
+        return
+    show_status(f"Saved {path}")
+
+
+def _update_title():
+    if g["current_file"]:
+        name = os.path.basename(g["current_file"])
+        g["root"].title(f"FileTalk Form Producer — {name}")
+    else:
+        g["root"].title("FileTalk Form Producer")
+
+
 def _open_directory(path):
     """Open path in the OS file manager."""
     if sys.platform == "win32":
@@ -491,16 +571,3 @@ def _clear_status():
     g["status_var"].set("")
     g["status_label"].configure(fg="black")
     g["status_clear_id"] = None
-
-
-# ---------------------------------------------------------------------------
-# Startup helpers
-# ---------------------------------------------------------------------------
-
-def _load_spec_file(path):
-    try:
-        with open(path, 'r', encoding='utf-8') as f:
-            content = f.read()
-        g["top_text"].insert("1.0", content)
-    except OSError as e:
-        show_status(f"Could not load spec file: {e}", error=True)
