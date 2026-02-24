@@ -655,6 +655,30 @@
     "float_nan_inf_policy": {
       "decision": "Reject NaN and Infinity.",
       "rationale": "Keeps emitted JSON predictable and avoids non-standard number representations."
+    },
+    "keybinding_assignments": {
+      "decision": "Ctrl+Enter: render form. Ctrl+E: emit to Patchboard. Ctrl+S: save DSL file. Ctrl+O: open DSL file. Ctrl+J: copy signal JSON to clipboard. Ctrl+L: clear status.",
+      "rationale": "Ctrl+S is universally expected for file save. Ctrl+E for emit frees Ctrl+S. Ctrl+J for JSON copy follows J-for-JSON mnemonic."
+    },
+    "entry_width_sticky": {
+      "decision": "Entry-based widgets (str, int, float, date, time, fixed) use sticky='w' in the form grid. Text, json, and choice widgets use sticky='ew'.",
+      "rationale": "sticky='ew' causes Entry to ignore its width= parameter by stretching to fill the column. sticky='w' preserves the intended character-unit width. Multi-line and choice widgets benefit from full width."
+    },
+    "file_save_stickiness": {
+      "decision": "Ctrl+S saves to the currently open file without re-prompting. A save dialog is shown only when no file path is established.",
+      "rationale": "Standard editor behaviour; minimises friction when iterating on a spec."
+    },
+    "copy_json_copies_signal_only": {
+      "decision": "Route > Copy JSON copies the signal dict only, not the full Patchboard message wrapper.",
+      "rationale": "The clipboard action is for inspecting or pasting form values, not for transport. The wrapper (channel, timestamp) is transport metadata irrelevant to this use case."
+    },
+    "inbox_polling": {
+      "decision": "The app polls an INBOX directory every 1000 ms using root.after(). On receiving a channel='text' message whose signal is a string, it replaces the DSL editor content and immediately attempts to re-render the form. All successfully parsed message files are deleted after processing regardless of channel.",
+      "rationale": "Polling via after() is idiomatic for single-threaded Tkinter and requires no concurrency primitives. 1 s interval is responsive without excessive filesystem access. Deleting all parsed messages avoids INBOX accumulation from unrecognised channels."
+    },
+    "inbox_text_channel_only": {
+      "decision": "Only channel='text' messages are acted upon. All other channels are parsed, deleted, and ignored.",
+      "rationale": "v1 scope is producer-first. The text channel allows external tools to drive the form spec remotely. Other channels are reserved for future consumer profiles."
     }
   }
 }

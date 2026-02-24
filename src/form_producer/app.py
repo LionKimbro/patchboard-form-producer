@@ -11,12 +11,14 @@ from tkinter import filedialog, ttk
 
 from .parser import ParseError, parse_spec
 from .emitter import EmitError, build_message, emit_message
+from .inbox import scan_inbox, is_text_message
 
 
 # One canonical global bundle.
 g = {}
 
 _STATUS_SUCCESS_MS = 4000
+_INBOX_POLL_MS = 1000
 
 _HINT_SYNTAX = '<identifier> -- <type>   # channel <channel>   # outbox <path>'
 _HINT_TYPES  = 'str<w>  text<w,h>  choice<a,b,...>  bool  int<w>  float<w>  json<w,h>  date  time  "fixed value"'
@@ -50,6 +52,7 @@ def run(config):
         g["current_file"] = config["spec_path"]
         _update_title()
 
+    _start_inbox_polling()
     g["root"].mainloop()
 
 
@@ -116,6 +119,12 @@ def _build_menubar(root):
         underline=0,
         accelerator="Ctrl+J",
         command=handle_copy_json,
+    )
+    route_menu.add_separator()
+    route_menu.add_command(
+        label="Create Inbox",
+        underline=0,
+        command=handle_create_inbox,
     )
     menubar.add_cascade(label="Route", menu=route_menu, underline=0)
 
@@ -292,9 +301,22 @@ def handle_file_save():
         _write_spec_file(path)
 
 
+def handle_create_inbox():
+    inbox_abs = os.path.abspath(_effective_inbox())
+    if os.path.isdir(inbox_abs):
+        show_status(f"INBOX already exists: {inbox_abs}")
+        return
+    try:
+        os.makedirs(inbox_abs)
+    except OSError as e:
+        show_status(f"Could not create INBOX: {e}", error=True)
+        return
+    show_status(f"Created INBOX: {inbox_abs}")
+    _open_directory(inbox_abs)
+
+
 def handle_open_outbox():
-    outbox = _effective_outbox()
-    outbox_abs = os.path.abspath(outbox)
+    outbox_abs = os.path.abspath(_effective_outbox())
     if not os.path.isdir(outbox_abs):
         show_status(f"OUTBOX does not exist yet: {outbox_abs}", error=True)
         return
@@ -493,6 +515,42 @@ def _read_widget(fid, ftype):
 
 
 # ---------------------------------------------------------------------------
+# INBOX polling
+# ---------------------------------------------------------------------------
+
+def _start_inbox_polling():
+    g["root"].after(_INBOX_POLL_MS, _poll_inbox)
+
+
+def _poll_inbox():
+    inbox_path = _effective_inbox()
+    for filepath, message in scan_inbox(inbox_path):
+        if is_text_message(message):
+            _handle_inbox_text(message['signal'])
+        # Remove every successfully parsed message (processed = decided upon).
+        try:
+            os.remove(filepath)
+        except OSError:
+            pass
+    g["root"].after(_INBOX_POLL_MS, _poll_inbox)
+
+
+def _handle_inbox_text(text):
+    """Replace the DSL editor content with text and re-render if parse passes."""
+    g["top_text"].delete("1.0", "end")
+    g["top_text"].insert("1.0", text)
+    try:
+        directives, fields = parse_spec(text)
+    except ParseError as e:
+        show_status(f"INBOX: text loaded, parse failed — {e}", error=True)
+        return
+    g["fields"] = fields
+    g["directives"] = directives
+    render_form(fields)
+    show_status(f"INBOX: received text message, rendered {len(fields)} field(s).")
+
+
+# ---------------------------------------------------------------------------
 # Config resolution
 # ---------------------------------------------------------------------------
 
@@ -504,6 +562,11 @@ def _effective_channel():
 def _effective_outbox():
     """Resolve OUTBOX path: CLI/env config > DSL directive > default."""
     return g["config"].get("outbox") or g["directives"].get("outbox") or "OUTBOX"
+
+
+def _effective_inbox():
+    """Resolve INBOX path: CLI/env config > default."""
+    return g["config"].get("inbox") or "INBOX"
 
 
 # ---------------------------------------------------------------------------
