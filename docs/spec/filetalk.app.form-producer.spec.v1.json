@@ -177,6 +177,14 @@
           "success_messages_auto_clear_seconds": 4,
           "error_messages_persist_until_next_action": true
         }
+      },
+      "help_hint": {
+        "type": "Label",
+        "role": "Static one-line type reference always visible in the UI",
+        "placement": "Between top pane and bottom pane, or below the top pane label/header",
+        "text": "str<w>  text<w,h>  choice<a,b,...>  bool  int<w>  float<w>  json<w,h>  # channel <channel>  # outbox <path>",
+        "style": "small, muted/grey; monospace recommended",
+        "behavior": "Always visible; never updated dynamically"
       }
     },
     "key_bindings": {

@@ -3,19 +3,16 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "librarian"
+name = "form-producer"
 version = "0.1.0"
-description = "Inspect, edit, save, and index JSON document headers into inventory.json."
+description = "Turns a textual form-spec DSL into a live Tkinter form and emits Patchboard/FileTalk messages as JSON files into an OUTBOX directory."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
-dependencies = [
-  "lionscliapp",
-  "pyperclip",
-]
+dependencies = []
 
 [project.scripts]
-librarian = "librarian.__main__:main"
+form-producer = "form_producer.__main__:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}

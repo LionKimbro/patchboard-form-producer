@@ -1,0 +1,8 @@
+__pycache__
+*.egg-info
+
+.claude/
+AGENTS.md
+CLAUDE.md
+agents.json
+docs/agent/
