@@ -10,7 +10,7 @@ import tkinter as tk
 from tkinter import ttk
 
 from .parser import ParseError, parse_spec
-from .emitter import EmitError, emit_message
+from .emitter import EmitError, build_message, emit_message
 
 
 # One canonical global bundle.
@@ -69,6 +69,7 @@ def _setup_ui():
     root.rowconfigure(4, weight=1)   # bottom pane
     root.rowconfigure(5, weight=0)   # bottom bar (Open OUTBOX + status)
 
+    _build_menubar(root)
     _build_top_pane(root)
     _build_help_hints(root)
     _build_bottom_pane(root)
@@ -77,6 +78,26 @@ def _setup_ui():
     root.bind("<Control-Return>", handle_ctrl_enter)
     root.bind("<Control-s>", handle_ctrl_s)
     root.bind("<Control-l>", handle_ctrl_l)
+
+
+def _build_menubar(root):
+    menubar = tk.Menu(root)
+
+    route_menu = tk.Menu(menubar, tearoff=0)
+    route_menu.add_command(
+        label="Emit to Patchboard",
+        underline=0,
+        accelerator="Ctrl+S",
+        command=lambda: handle_ctrl_s(None),
+    )
+    route_menu.add_command(
+        label="Copy JSON",
+        underline=0,
+        command=handle_copy_json,
+    )
+
+    menubar.add_cascade(label="Route", menu=route_menu, underline=0)
+    root.config(menu=menubar)
 
 
 def _build_top_pane(root):
@@ -204,6 +225,22 @@ def handle_ctrl_s(event):
 def handle_ctrl_l(event):
     _clear_status()
     return "break"
+
+
+def handle_copy_json():
+    if g["fields"] is None:
+        show_status("No form rendered — press Ctrl+Enter first.", error=True)
+        return
+
+    signal = _collect_values()
+    if signal is None:
+        return
+
+    json_str = json.dumps(signal, ensure_ascii=False, indent=2)
+
+    g["root"].clipboard_clear()
+    g["root"].clipboard_append(json_str)
+    show_status("JSON copied to clipboard.")
 
 
 def handle_open_outbox():

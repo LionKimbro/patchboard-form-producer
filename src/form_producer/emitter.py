@@ -10,18 +10,21 @@ class EmitError(Exception):
     pass
 
 
-def emit_message(signal, channel, outbox_path):
-    """Build a Patchboard core message and write it to outbox_path.
-
-    Writes directly to the final filename (no temp-file + rename) per the
-    file-transport profile.  Returns the written filename (basename only).
-    """
-    message = {
+def build_message(signal, channel):
+    """Build and return a Patchboard core message dict."""
+    return {
         "channel": channel,
         "timestamp": str(time.time()),
         "signal": signal,
     }
 
+
+def write_message(message, outbox_path):
+    """Write a Patchboard message dict to outbox_path as <uuid4>.json.
+
+    Writes directly to the final filename (no temp-file + rename) per the
+    file-transport profile.  Returns the written filename (basename only).
+    """
     try:
         os.makedirs(outbox_path, exist_ok=True)
     except OSError as e:
@@ -38,3 +41,8 @@ def emit_message(signal, channel, outbox_path):
         raise EmitError(f"Cannot write file '{filepath}': {e}")
 
     return filename
+
+
+def emit_message(signal, channel, outbox_path):
+    """Build and write a Patchboard message. Returns the written filename."""
+    return write_message(build_message(signal, channel), outbox_path)
