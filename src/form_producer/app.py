@@ -22,7 +22,7 @@ _INBOX_POLL_MS = 1000
 
 _HINT_SYNTAX = '<identifier> -- <type>   # channel <ch>   # outbox <path>   # title <title>'
 _HINT_TYPES  = 'str<w>  text<w,h>  choice<a,b,...>  bool  int<w>  float<w>  json<w,h>  date  time  "fixed value"'
-_HINT_KEYS   = 'Ctrl+Enter: render   Ctrl+E: emit   Ctrl+J: copy JSON   Ctrl+S: save   Ctrl+O: open   Ctrl+N: new tab   Ctrl+W: close tab'
+_HINT_KEYS   = 'Ctrl+Enter: render   Ctrl+E: emit   Ctrl+J: copy JSON   Ctrl+S: save   Ctrl+O: open   Ctrl+N: new tab   Ctrl+W: close tab   Esc: focus tab bar   Ctrl+←/→: prev/next tab   Ctrl+↑/↓: DSL/form'
 
 
 # ---------------------------------------------------------------------------
@@ -80,6 +80,11 @@ def _setup_ui():
     root.bind("<Control-o>", lambda e: handle_file_open())
     root.bind("<Control-n>", lambda e: (_new_tab(), "break")[1])
     root.bind("<Control-w>", lambda e: (handle_tab_close(), "break")[1])
+    root.bind("<Control-Right>", handle_next_tab)
+    root.bind("<Control-Left>",  handle_prev_tab)
+    root.bind("<Control-Down>",  handle_focus_form)
+    root.bind("<Control-Up>",    handle_focus_dsl)
+    root.bind("<Escape>",        handle_escape)
     root.bind("<Control-l>", handle_ctrl_l)
 
 
@@ -109,6 +114,23 @@ def _build_menubar(root):
     tabs_menu.add_command(
         label="Close Tab", underline=0, accelerator="Ctrl+W",
         command=handle_tab_close,
+    )
+    tabs_menu.add_separator()
+    tabs_menu.add_command(
+        label="Next Tab",          accelerator="Ctrl+→",
+        command=lambda: handle_next_tab(None),
+    )
+    tabs_menu.add_command(
+        label="Previous Tab",      accelerator="Ctrl+←",
+        command=lambda: handle_prev_tab(None),
+    )
+    tabs_menu.add_command(
+        label="Focus Form",        accelerator="Ctrl+↓",
+        command=lambda: handle_focus_form(None),
+    )
+    tabs_menu.add_command(
+        label="Focus Description", accelerator="Ctrl+↑",
+        command=lambda: handle_focus_dsl(None),
     )
     menubar.add_cascade(label="Tabs", menu=tabs_menu, underline=0)
 
@@ -293,7 +315,7 @@ def _auto_render_tab(tab):
     tab["fields"] = fields
     tab["directives"] = directives
     _update_tab_label(tab)
-    _render_form_in_tab(tab, fields)
+    _render_form_in_tab(tab, fields, focus=False)
     _update_emit_label()
 
 
@@ -391,6 +413,12 @@ def handle_ctrl_l(event):
     return "break"
 
 
+def handle_escape(event):
+    """Move focus to the notebook tab bar, freeing it from any text widget."""
+    g["notebook"].focus_set()
+    return "break"
+
+
 def handle_exit():
     g["root"].destroy()
 
@@ -458,6 +486,46 @@ def handle_tab_close():
     g["tabs"].pop(idx)
 
 
+def handle_next_tab(event):
+    # Don't steal Ctrl+Right from text/entry widgets where it moves the cursor.
+    if isinstance(g["root"].focus_get(), (tk.Text, tk.Entry, ttk.Combobox)):
+        return
+    if len(g["tabs"]) > 1:
+        idx = g["notebook"].index("current")
+        g["notebook"].select((idx + 1) % len(g["tabs"]))
+    return "break"
+
+
+def handle_prev_tab(event):
+    # Don't steal Ctrl+Left from text/entry widgets where it moves the cursor.
+    if isinstance(g["root"].focus_get(), (tk.Text, tk.Entry, ttk.Combobox)):
+        return
+    if len(g["tabs"]) > 1:
+        idx = g["notebook"].index("current")
+        g["notebook"].select((idx - 1) % len(g["tabs"]))
+    return "break"
+
+
+def handle_focus_form(event):
+    # Don't steal Ctrl+Down from Text widgets where it moves the cursor.
+    if isinstance(g["root"].focus_get(), tk.Text):
+        return
+    tab = _safe_current_tab()
+    if tab:
+        widget = _first_editable_widget(tab)
+        if widget:
+            widget.focus_set()
+    return "break"
+
+
+def handle_focus_dsl(event):
+    # Don't steal Ctrl+Up from Text widgets where it moves the cursor.
+    if isinstance(g["root"].focus_get(), tk.Text):
+        return
+    g["notebook"].focus_set()
+    return "break"
+
+
 def handle_emit_card():
     """Emit the component ID card as a Patchboard message to the OUTBOX."""
     card = _build_card()
@@ -507,7 +575,17 @@ def handle_open_outbox():
 # Form rendering
 # ---------------------------------------------------------------------------
 
-def _render_form_in_tab(tab, fields):
+def _first_editable_widget(tab):
+    """Return the first non-fixed widget in the rendered form, or None."""
+    for field in (tab["fields"] or []):
+        if field["type"] != "fixed":
+            widget = tab["widgets"].get(field["id"])
+            if widget:
+                return widget
+    return None
+
+
+def _render_form_in_tab(tab, fields, focus=True):
     inner = tab["inner"]
 
     for widget in inner.winfo_children():
@@ -536,10 +614,10 @@ def _render_form_in_tab(tab, fields):
         widget.grid(row=row, column=1, sticky=sticky, padx=(0, 6), pady=3)
         tab["widgets"][fid] = widget
 
-        if first_widget is None:
+        if first_widget is None and field["type"] != "fixed":
             first_widget = widget
 
-    if first_widget is not None:
+    if first_widget is not None and focus:
         first_widget.focus_set()
 
 
