@@ -307,10 +307,26 @@ def _update_emit_label():
 
 
 def _build_card():
-    """Build a Patchboard component ID card dict from the current config."""
-    inbox   = g["config"].get("inbox")  or "INBOX"
-    outbox  = g["config"].get("outbox") or "OUTBOX"
-    channel = g["config"].get("channel") or "output"
+    """Build a Patchboard component ID card dict from the current config.
+
+    channels.out is assembled by scanning all open tabs: each tab contributes
+    its effective output channel (# channel: directive, else configured default).
+    "card" is always included since the component can emit on that channel too.
+    """
+    inbox           = g["config"].get("inbox")  or "INBOX"
+    outbox          = g["config"].get("outbox") or "OUTBOX"
+    default_channel = g["config"].get("channel") or "output"
+
+    out_channels = []
+    for tab in g.get("tabs") or []:
+        ch = tab["directives"].get("channel") or default_channel
+        if ch not in out_channels:
+            out_channels.append(ch)
+    if not out_channels:
+        out_channels.append(default_channel)
+    if "card" not in out_channels:
+        out_channels.append("card")
+
     return {
         "schema_version": 1,
         "title": "FileTalk Form Producer",
@@ -318,7 +334,7 @@ def _build_card():
         "outbox": os.path.abspath(str(outbox)),
         "channels": {
             "in":  ["text"],
-            "out": [channel] if channel == "card" else [channel, "card"],
+            "out": out_channels,
         },
     }
 
