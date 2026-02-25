@@ -1,5 +1,7 @@
 # FileTalk Form Producer
 
+![Form Producer screenshot](docs/img/form-producer-screenshot.png)
+
 A desktop GUI tool for the [Patchboard](https://github.com/lion/patchboard) system. You describe a form in a simple text DSL, press a key, and a live form appears. Fill it in and emit the result as a Patchboard JSON message — ready for any other Patchboard component to consume. If you're not using Patchboard, you can also copy the filled-in JSON directly to the clipboard with **Ctrl+J**.
 
 ---
