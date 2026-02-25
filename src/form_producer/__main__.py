@@ -1,31 +1,35 @@
 """FileTalk Form Producer — entry point."""
 
-import argparse
-import os
+import lionscliapp as app
 
 from .app import run
 
 
-def main():
-    parser = argparse.ArgumentParser(
-        prog="form-producer",
-        description="Turn a form-spec DSL into a live Tkinter form and emit Patchboard messages.",
-    )
-    parser.add_argument("--outbox", default=None, help="Override OUTBOX directory path")
-    parser.add_argument("--inbox", default=None, help="Override INBOX directory path")
-    parser.add_argument("--channel", default=None, help="Override default output channel")
-    parser.add_argument("--spec", default=None, metavar="FILE",
-                        help="DSL spec file to load into the editor on startup")
-    args = parser.parse_args()
-
+def _run_command():
+    from lionscliapp import ctx, get_path
     config = {
-        "outbox": args.outbox or os.environ.get("FORM_PRODUCER_OUTBOX"),
-        "inbox": args.inbox or os.environ.get("FORM_PRODUCER_INBOX"),
-        "channel": args.channel or os.environ.get("FORM_PRODUCER_CHANNEL"),
-        "spec_path": args.spec,
+        "outbox": ctx.get("path.outbox"),    # Path (resolved by lionscliapp)
+        "inbox": ctx.get("path.inbox"),      # Path (resolved by lionscliapp)
+        "channel": ctx.get("channel"),       # str
+        "project_dir": get_path(".", "p"),   # Path to .form-producer/
     }
-
     run(config)
+
+
+app.declare_app("form-producer", "0.1.0")
+app.describe_app("Turn a form-spec DSL into a live Tkinter form and emit Patchboard messages.")
+app.declare_projectdir(".form-producer")
+app.declare_key("path.outbox", "OUTBOX")
+app.describe_key("path.outbox", "OUTBOX directory path for emitted messages")
+app.declare_key("path.inbox", "INBOX")
+app.describe_key("path.inbox", "INBOX directory path to watch for incoming messages")
+app.declare_key("channel", "output")
+app.describe_key("channel", "Default output channel name")
+app.declare_cmd("", _run_command)
+
+
+def main():
+    app.main()
 
 
 if __name__ == "__main__":

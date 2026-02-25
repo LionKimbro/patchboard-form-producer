@@ -9,7 +9,7 @@ description = "Turns a textual form-spec DSL into a live Tkinter form and emits 
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
-dependencies = []
+dependencies = ["lionscliapp"]
 
 [project.scripts]
 form-producer = "form_producer.__main__:main"

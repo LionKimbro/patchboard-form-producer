@@ -43,6 +43,16 @@ def test_directive_channel_trimmed():
     assert dirs["channel"] == "spaced"
 
 
+def test_directive_title():
+    dirs, _ = parse_spec("# title: My Form\n")
+    assert dirs["title"] == "My Form"
+
+
+def test_directive_title_trimmed():
+    dirs, _ = parse_spec("#  title:   padded  \n")
+    assert dirs["title"] == "padded"
+
+
 def test_unknown_directive_is_just_a_comment():
     dirs, _ = parse_spec("# something: else\n")
     assert "something" not in dirs

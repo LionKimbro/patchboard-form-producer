@@ -1,4 +1,4 @@
-"""FileTalk Form Producer — Tkinter application."""
+"""FileTalk Form Producer — Tkinter application (tabbed)."""
 
 import datetime
 import json
@@ -20,7 +20,7 @@ g = {}
 _STATUS_SUCCESS_MS = 4000
 _INBOX_POLL_MS = 1000
 
-_HINT_SYNTAX = '<identifier> -- <type>   # channel <channel>   # outbox <path>'
+_HINT_SYNTAX = '<identifier> -- <type>   # channel <ch>   # outbox <path>   # title <title>'
 _HINT_TYPES  = 'str<w>  text<w,h>  choice<a,b,...>  bool  int<w>  float<w>  json<w,h>  date  time  "fixed value"'
 _HINT_KEYS   = 'Ctrl+Enter: render   Ctrl+E: emit   Ctrl+J: copy JSON   Ctrl+S: save file   Ctrl+O: open file'
 
@@ -30,28 +30,22 @@ _HINT_KEYS   = 'Ctrl+Enter: render   Ctrl+E: emit   Ctrl+J: copy JSON   Ctrl+S: 
 # ---------------------------------------------------------------------------
 
 def run(config):
-    """Build the UI and enter the main loop.
+    """Build the tabbed UI and enter the main loop.
 
-    config keys (all optional, None means not set):
-        channel   — override default channel
-        outbox    — override default OUTBOX path
-        spec_path — path to a DSL file to load on startup
+    config keys:
+        channel     — configured channel (str)
+        outbox      — configured OUTBOX path (Path or None)
+        inbox       — configured INBOX path (Path or None)
+        project_dir — .form-producer/ directory (Path), used as file dialog default
     """
     g["config"] = config
-    g["fields"] = None      # list of field dicts after a successful parse
-    g["directives"] = {}    # directive overrides from last successful parse
-    g["widgets"] = {}       # {field_id: widget}
-    g["vars"] = {}          # {field_id: BooleanVar} for checkbuttons
+    g["tabs"] = []
+    g["untitled_count"] = 0
     g["status_clear_id"] = None
-    g["current_file"] = None  # path of the currently open spec file
+    g["project_dir"] = config.get("project_dir")  # Path or None
 
     _setup_ui()
-
-    if config.get("spec_path"):
-        _load_spec_file(config["spec_path"])
-        g["current_file"] = config["spec_path"]
-        _update_title()
-
+    _new_tab()  # Start with one empty tab
     _start_inbox_polling()
     g["root"].mainloop()
 
@@ -68,17 +62,15 @@ def _setup_ui():
     g["root"] = root
 
     root.columnconfigure(0, weight=1)
-    root.rowconfigure(0, weight=1)   # top pane
-    root.rowconfigure(1, weight=0)   # hint: syntax
-    root.rowconfigure(2, weight=0)   # hint: types
-    root.rowconfigure(3, weight=0)   # hint: keybindings
-    root.rowconfigure(4, weight=1)   # bottom pane
-    root.rowconfigure(5, weight=0)   # bottom bar (Open OUTBOX + status)
+    root.rowconfigure(0, weight=0)   # hint: syntax
+    root.rowconfigure(1, weight=0)   # hint: types
+    root.rowconfigure(2, weight=0)   # hint: keybindings
+    root.rowconfigure(3, weight=1)   # notebook
+    root.rowconfigure(4, weight=0)   # bottom bar
 
     _build_menubar(root)
-    _build_top_pane(root)
     _build_help_hints(root)
-    _build_bottom_pane(root)
+    _build_notebook(root)
     _build_bottom_bar(root)
 
     root.bind("<Control-Return>", handle_ctrl_enter)
@@ -94,65 +86,38 @@ def _build_menubar(root):
 
     file_menu = tk.Menu(menubar, tearoff=0)
     file_menu.add_command(
-        label="Open",
-        underline=0,
-        accelerator="Ctrl+O",
-        command=handle_file_open,
+        label="Open", underline=0, accelerator="Ctrl+O", command=handle_file_open,
     )
     file_menu.add_command(
-        label="Save",
-        underline=0,
-        accelerator="Ctrl+S",
-        command=handle_file_save,
+        label="Save", underline=0, accelerator="Ctrl+S", command=handle_file_save,
     )
     menubar.add_cascade(label="File", menu=file_menu, underline=0)
 
+    tab_menu = tk.Menu(menubar, tearoff=0)
+    tab_menu.add_command(label="New",   underline=0, command=lambda: _new_tab())
+    tab_menu.add_command(label="Close", underline=0, command=handle_tab_close)
+    menubar.add_cascade(label="Tab", menu=tab_menu, underline=0)
+
     route_menu = tk.Menu(menubar, tearoff=0)
     route_menu.add_command(
-        label="Emit to Patchboard",
-        underline=0,
-        accelerator="Ctrl+E",
-        command=handle_emit,
+        label="Emit to Patchboard", underline=0, accelerator="Ctrl+E", command=handle_emit,
     )
     route_menu.add_command(
-        label="Copy JSON",
-        underline=0,
-        accelerator="Ctrl+J",
-        command=handle_copy_json,
+        label="Copy JSON", underline=0, accelerator="Ctrl+J", command=handle_copy_json,
     )
     route_menu.add_separator()
     route_menu.add_command(
-        label="Create Inbox",
-        underline=0,
-        command=handle_create_inbox,
+        label="Create Inbox", underline=0, command=handle_create_inbox,
     )
     menubar.add_cascade(label="Route", menu=route_menu, underline=0)
 
     root.config(menu=menubar)
 
 
-def _build_top_pane(root):
-    frame = tk.Frame(root)
-    frame.grid(row=0, column=0, sticky="nsew", padx=4, pady=(4, 0))
-    frame.columnconfigure(0, weight=1)
-    frame.rowconfigure(0, weight=1)
-
-    text = tk.Text(frame, font=("Courier", 10), wrap="none", undo=True)
-    text.grid(row=0, column=0, sticky="nsew")
-
-    sy = tk.Scrollbar(frame, orient="vertical", command=text.yview)
-    sy.grid(row=0, column=1, sticky="ns")
-    sx = tk.Scrollbar(frame, orient="horizontal", command=text.xview)
-    sx.grid(row=1, column=0, sticky="ew")
-    text.configure(yscrollcommand=sy.set, xscrollcommand=sx.set)
-
-    g["top_text"] = text
-
-
 def _build_help_hints(root):
-    _hint_label(root, _HINT_SYNTAX, row=1, pady=(4, 0))
-    _hint_label(root, _HINT_TYPES,  row=2, pady=(0, 0))
-    _hint_label(root, _HINT_KEYS,   row=3, pady=(0, 4))
+    _hint_label(root, _HINT_SYNTAX, row=0, pady=(4, 0))
+    _hint_label(root, _HINT_TYPES,  row=1, pady=(0, 0))
+    _hint_label(root, _HINT_KEYS,   row=2, pady=(0, 4))
 
 
 def _hint_label(root, text, row, pady):
@@ -166,36 +131,16 @@ def _hint_label(root, text, row, pady):
     ).grid(row=row, column=0, sticky="ew", padx=4, pady=pady)
 
 
-def _build_bottom_pane(root):
-    outer = tk.Frame(root, relief="sunken", borderwidth=1)
-    outer.grid(row=4, column=0, sticky="nsew", padx=4, pady=(0, 2))
-    outer.columnconfigure(0, weight=1)
-    outer.rowconfigure(0, weight=1)
-
-    canvas = tk.Canvas(outer, highlightthickness=0)
-    canvas.grid(row=0, column=0, sticky="nsew")
-
-    sy = tk.Scrollbar(outer, orient="vertical", command=canvas.yview)
-    sy.grid(row=0, column=1, sticky="ns")
-    canvas.configure(yscrollcommand=sy.set)
-    g["bottom_canvas"] = canvas
-
-    inner = tk.Frame(canvas)
-    g["bottom_inner"] = inner
-    win_id = canvas.create_window((0, 0), window=inner, anchor="nw")
-
-    inner.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
-    canvas.bind("<Configure>", lambda e: canvas.itemconfig(win_id, width=e.width))
-
-    # Mousewheel scrolling (Windows + Linux)
-    canvas.bind("<MouseWheel>", lambda e: canvas.yview_scroll(-1 * (e.delta // 120), "units"))
-    canvas.bind("<Button-4>", lambda e: canvas.yview_scroll(-1, "units"))
-    canvas.bind("<Button-5>", lambda e: canvas.yview_scroll(1, "units"))
+def _build_notebook(root):
+    nb = ttk.Notebook(root)
+    nb.grid(row=3, column=0, sticky="nsew", padx=4, pady=0)
+    nb.bind("<<NotebookTabChanged>>", _on_tab_changed)
+    g["notebook"] = nb
 
 
 def _build_bottom_bar(root):
     bar = tk.Frame(root)
-    bar.grid(row=5, column=0, sticky="ew")
+    bar.grid(row=4, column=0, sticky="ew")
     bar.columnconfigure(1, weight=1)
 
     btn = tk.Button(bar, text="Open OUTBOX", command=handle_open_outbox)
@@ -210,38 +155,158 @@ def _build_bottom_bar(root):
 
 
 # ---------------------------------------------------------------------------
+# Tab management
+# ---------------------------------------------------------------------------
+
+def _current_tab():
+    idx = g["notebook"].index("current")
+    return g["tabs"][idx]
+
+
+def _new_tab(text="", filename=None):
+    """Create a new tab with a DSL editor and form canvas. Returns the tab dict."""
+    g["untitled_count"] += 1
+    tab = {
+        "number":     g["untitled_count"],
+        "filename":   filename,
+        "directives": {},
+        "fields":     None,
+        "widgets":    {},
+        "vars":       {},
+        "text_widget": None,
+        "canvas":     None,
+        "inner":      None,
+        "frame":      None,
+    }
+
+    frame = tk.Frame(g["notebook"])
+    tab["frame"] = frame
+    frame.columnconfigure(0, weight=1)
+    frame.rowconfigure(0, weight=1)
+    frame.rowconfigure(1, weight=1)
+
+    # ── Top half: DSL editor ──────────────────────────────────────────────
+    top_frame = tk.Frame(frame)
+    top_frame.grid(row=0, column=0, sticky="nsew", padx=4, pady=(4, 2))
+    top_frame.columnconfigure(0, weight=1)
+    top_frame.rowconfigure(0, weight=1)
+
+    text_widget = tk.Text(top_frame, font=("Courier", 10), wrap="none", undo=True)
+    text_widget.grid(row=0, column=0, sticky="nsew")
+    if text:
+        text_widget.insert("1.0", text)
+
+    sy = tk.Scrollbar(top_frame, orient="vertical", command=text_widget.yview)
+    sy.grid(row=0, column=1, sticky="ns")
+    sx = tk.Scrollbar(top_frame, orient="horizontal", command=text_widget.xview)
+    sx.grid(row=1, column=0, sticky="ew")
+    text_widget.configure(yscrollcommand=sy.set, xscrollcommand=sx.set)
+    tab["text_widget"] = text_widget
+
+    # ── Bottom half: scrollable form canvas ───────────────────────────────
+    outer = tk.Frame(frame, relief="sunken", borderwidth=1)
+    outer.grid(row=1, column=0, sticky="nsew", padx=4, pady=(0, 2))
+    outer.columnconfigure(0, weight=1)
+    outer.rowconfigure(0, weight=1)
+
+    canvas = tk.Canvas(outer, highlightthickness=0)
+    canvas.grid(row=0, column=0, sticky="nsew")
+
+    sy2 = tk.Scrollbar(outer, orient="vertical", command=canvas.yview)
+    sy2.grid(row=0, column=1, sticky="ns")
+    canvas.configure(yscrollcommand=sy2.set)
+    tab["canvas"] = canvas
+
+    inner = tk.Frame(canvas)
+    tab["inner"] = inner
+    win_id = canvas.create_window((0, 0), window=inner, anchor="nw")
+
+    inner.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+    canvas.bind("<Configure>", lambda e: canvas.itemconfig(win_id, width=e.width))
+    canvas.bind("<MouseWheel>", lambda e: canvas.yview_scroll(-1 * (e.delta // 120), "units"))
+    canvas.bind("<Button-4>",   lambda e: canvas.yview_scroll(-1, "units"))
+    canvas.bind("<Button-5>",   lambda e: canvas.yview_scroll(1, "units"))
+
+    # ── Register and select ───────────────────────────────────────────────
+    g["tabs"].append(tab)
+    g["notebook"].add(frame, text=_tab_label(tab))
+    g["notebook"].select(frame)
+
+    return tab
+
+
+def _tab_label(tab):
+    title = tab["directives"].get("title")
+    if title:
+        return title
+    if tab["filename"]:
+        return os.path.basename(tab["filename"])
+    return f"Untitled #{tab['number']}"
+
+
+def _update_tab_label(tab):
+    idx = g["tabs"].index(tab)
+    g["notebook"].tab(idx, text=_tab_label(tab))
+
+
+def _on_tab_changed(event):
+    """Auto-render the form whenever a tab is selected."""
+    try:
+        tab = _current_tab()
+    except (IndexError, tk.TclError):
+        return
+    _auto_render_tab(tab)
+
+
+def _auto_render_tab(tab):
+    """Parse the tab's DSL and render the form. Silent on parse failure."""
+    text = tab["text_widget"].get("1.0", "end-1c")
+    try:
+        directives, fields = parse_spec(text)
+    except ParseError:
+        return
+    tab["fields"] = fields
+    tab["directives"] = directives
+    _update_tab_label(tab)
+    _render_form_in_tab(tab, fields)
+
+
+# ---------------------------------------------------------------------------
 # Key binding handlers
 # ---------------------------------------------------------------------------
 
 def handle_ctrl_enter(event):
-    text = g["top_text"].get("1.0", "end-1c")
+    tab = _current_tab()
+    text = tab["text_widget"].get("1.0", "end-1c")
     try:
         directives, fields = parse_spec(text)
     except ParseError as e:
         show_status(str(e), error=True)
         return "break"
 
-    g["fields"] = fields
-    g["directives"] = directives
-    render_form(fields)
+    tab["fields"] = fields
+    tab["directives"] = directives
+    _update_tab_label(tab)
+    _render_form_in_tab(tab, fields)
 
-    channel = _effective_channel()
-    outbox = _effective_outbox()
-    show_status(f"Parsed {len(fields)} field(s).  channel={channel!r}  outbox={outbox!r}")
+    channel = _effective_channel(tab)
+    outbox  = _effective_outbox(tab)
+    show_status(f"Parsed {len(fields)} field(s).  channel={channel!r}  outbox={str(outbox)!r}")
     return "break"
 
 
 def handle_emit():
-    if g["fields"] is None:
+    tab = _current_tab()
+    if tab["fields"] is None:
         show_status("No form rendered — press Ctrl+Enter first.", error=True)
         return
 
-    signal = _collect_values()
+    signal = _collect_values_from_tab(tab)
     if signal is None:
         return
 
-    channel = _effective_channel()
-    outbox = _effective_outbox()
+    channel = _effective_channel(tab)
+    outbox  = str(_effective_outbox(tab))
 
     try:
         filename = emit_message(signal, channel, outbox)
@@ -258,16 +323,16 @@ def handle_ctrl_l(event):
 
 
 def handle_copy_json():
-    if g["fields"] is None:
+    tab = _current_tab()
+    if tab["fields"] is None:
         show_status("No form rendered — press Ctrl+Enter first.", error=True)
         return
 
-    signal = _collect_values()
+    signal = _collect_values_from_tab(tab)
     if signal is None:
         return
 
     json_str = json.dumps(signal, ensure_ascii=False, indent=2)
-
     g["root"].clipboard_clear()
     g["root"].clipboard_append(json_str)
     show_status("JSON copied to clipboard.")
@@ -276,33 +341,52 @@ def handle_copy_json():
 def handle_file_open():
     path = filedialog.askopenfilename(
         title="Open spec file",
+        initialdir=_file_dialog_initialdir(),
         filetypes=[("Text files", "*.txt"), ("All files", "*.*")],
     )
     if not path:
         return
-    _load_spec_file(path)
-    g["current_file"] = path
-    _update_title()
+    try:
+        with open(path, 'r', encoding='utf-8') as f:
+            content = f.read()
+    except OSError as e:
+        show_status(f"Could not open file: {e}", error=True)
+        return
+    tab = _new_tab(text=content, filename=path)
+    _auto_render_tab(tab)
+    show_status(f"Opened {path}")
 
 
 def handle_file_save():
-    if g["current_file"]:
-        _write_spec_file(g["current_file"])
+    tab = _current_tab()
+    if tab["filename"]:
+        _write_spec_file(tab, tab["filename"])
     else:
         path = filedialog.asksaveasfilename(
             title="Save spec file",
+            initialdir=_file_dialog_initialdir(),
             defaultextension=".txt",
             filetypes=[("Text files", "*.txt"), ("All files", "*.*")],
         )
         if not path:
             return
-        g["current_file"] = path
-        _update_title()
-        _write_spec_file(path)
+        tab["filename"] = path
+        _update_tab_label(tab)
+        _write_spec_file(tab, path)
+
+
+def handle_tab_close():
+    if len(g["tabs"]) <= 1:
+        show_status("Cannot close the last tab.", error=True)
+        return
+    tab = _current_tab()
+    idx = g["tabs"].index(tab)
+    g["notebook"].forget(tab["frame"])
+    g["tabs"].pop(idx)
 
 
 def handle_create_inbox():
-    inbox_abs = os.path.abspath(_effective_inbox())
+    inbox_abs = os.path.abspath(str(_effective_inbox()))
     if os.path.isdir(inbox_abs):
         show_status(f"INBOX already exists: {inbox_abs}")
         return
@@ -316,7 +400,8 @@ def handle_create_inbox():
 
 
 def handle_open_outbox():
-    outbox_abs = os.path.abspath(_effective_outbox())
+    tab = _safe_current_tab()
+    outbox_abs = os.path.abspath(str(_effective_outbox(tab)))
     if not os.path.isdir(outbox_abs):
         show_status(f"OUTBOX does not exist yet: {outbox_abs}", error=True)
         return
@@ -327,13 +412,13 @@ def handle_open_outbox():
 # Form rendering
 # ---------------------------------------------------------------------------
 
-def render_form(fields):
-    inner = g["bottom_inner"]
+def _render_form_in_tab(tab, fields):
+    inner = tab["inner"]
 
     for widget in inner.winfo_children():
         widget.destroy()
-    g["widgets"] = {}
-    g["vars"] = {}
+    tab["widgets"] = {}
+    tab["vars"] = {}
 
     inner.columnconfigure(0, weight=0)
     inner.columnconfigure(1, weight=1)
@@ -346,15 +431,15 @@ def render_form(fields):
         lbl = tk.Label(inner, text=fid + ":", font=("Courier", 10), anchor="w")
         lbl.grid(row=row, column=0, sticky="w", padx=(6, 4), pady=3)
 
-        widget = _make_widget(inner, field)
-        # Entry-based and fixed-width widgets use sticky="w" so width= is respected.
-        # Multi-line and choice widgets stretch to fill the column.
+        widget = _make_widget(inner, field, tab)
+        # Entry-based widgets use sticky="w" so width= is respected.
+        # Multi-line and choice widgets stretch full width.
         if field["type"] in ("text", "json", "choice"):
             sticky = "ew"
         else:
             sticky = "w"
         widget.grid(row=row, column=1, sticky=sticky, padx=(0, 6), pady=3)
-        g["widgets"][fid] = widget
+        tab["widgets"][fid] = widget
 
         if first_widget is None:
             first_widget = widget
@@ -363,7 +448,7 @@ def render_form(fields):
         first_widget.focus_set()
 
 
-def _make_widget(parent, field):
+def _make_widget(parent, field, tab):
     ftype = field["type"]
 
     if ftype == "str":
@@ -381,7 +466,7 @@ def _make_widget(parent, field):
 
     if ftype == "bool":
         var = tk.BooleanVar(value=False)
-        g["vars"][field["id"]] = var
+        tab["vars"][field["id"]] = var
         return tk.Checkbutton(parent, variable=var)
 
     if ftype == "int":
@@ -430,19 +515,19 @@ def _validate_int_keypress(new_value):
 # Value collection and validation
 # ---------------------------------------------------------------------------
 
-def _collect_values():
-    """Collect and validate all widget values.
+def _collect_values_from_tab(tab):
+    """Collect and validate all widget values for a tab.
 
-    Returns a signal dict on success, or None if any field fails validation
+    Returns a signal dict on success, or None if validation fails
     (the error is shown in the status bar and the offending widget focused).
     """
     signal = {}
 
-    for field in g["fields"]:
-        fid = field["id"]
+    for field in tab["fields"]:
+        fid   = field["id"]
         ftype = field["type"]
-        widget = g["widgets"][fid]
-        raw = _read_widget(fid, ftype)
+        widget = tab["widgets"][fid]
+        raw = _read_widget_from_tab(tab, fid, ftype)
 
         if ftype == "bool":
             signal[fid] = raw
@@ -503,15 +588,15 @@ def _collect_values():
     return signal
 
 
-def _read_widget(fid, ftype):
+def _read_widget_from_tab(tab, fid, ftype):
     """Read the raw value from a widget."""
     if ftype == "bool":
-        return g["vars"][fid].get()
+        return tab["vars"][fid].get()
     if ftype in ("text", "json"):
-        return g["widgets"][fid].get("1.0", "end-1c")
+        return tab["widgets"][fid].get("1.0", "end-1c")
     if ftype == "fixed":
-        return None  # handled directly from field["value"] in _collect_values
-    return g["widgets"][fid].get()
+        return None  # handled directly from field["value"]
+    return tab["widgets"][fid].get()
 
 
 # ---------------------------------------------------------------------------
@@ -523,11 +608,11 @@ def _start_inbox_polling():
 
 
 def _poll_inbox():
-    inbox_path = _effective_inbox()
+    inbox_path = str(_effective_inbox())
     for filepath, message in scan_inbox(inbox_path):
         if is_text_message(message):
             _handle_inbox_text(message['signal'])
-        # Remove every successfully parsed message (processed = decided upon).
+        # Delete every successfully parsed message regardless of channel.
         try:
             os.remove(filepath)
         except OSError:
@@ -536,57 +621,63 @@ def _poll_inbox():
 
 
 def _handle_inbox_text(text):
-    """Replace the DSL editor content with text and re-render if parse passes."""
-    g["top_text"].delete("1.0", "end")
-    g["top_text"].insert("1.0", text)
-    try:
-        directives, fields = parse_spec(text)
-    except ParseError as e:
-        show_status(f"INBOX: text loaded, parse failed — {e}", error=True)
-        return
-    g["fields"] = fields
-    g["directives"] = directives
-    render_form(fields)
-    show_status(f"INBOX: received text message, rendered {len(fields)} field(s).")
+    """Load text from INBOX into a new tab and auto-render."""
+    tab = _new_tab(text=text)
+    _auto_render_tab(tab)
+    count = len(tab["fields"]) if tab["fields"] is not None else 0
+    show_status(f"INBOX: received text message, rendered {count} field(s).")
 
 
 # ---------------------------------------------------------------------------
 # Config resolution
 # ---------------------------------------------------------------------------
 
-def _effective_channel():
-    """Resolve channel: CLI/env config > DSL directive > default."""
-    return g["config"].get("channel") or g["directives"].get("channel") or "output"
+def _effective_channel(tab=None):
+    """DSL directive > configured channel > default 'output'."""
+    if tab and tab["directives"].get("channel"):
+        return tab["directives"]["channel"]
+    return g["config"].get("channel") or "output"
 
 
-def _effective_outbox():
-    """Resolve OUTBOX path: CLI/env config > DSL directive > default."""
-    return g["config"].get("outbox") or g["directives"].get("outbox") or "OUTBOX"
+def _effective_outbox(tab=None):
+    """DSL directive > configured outbox > default 'OUTBOX'."""
+    if tab and tab["directives"].get("outbox"):
+        return tab["directives"]["outbox"]
+    outbox = g["config"].get("outbox")
+    return outbox if outbox is not None else "OUTBOX"
 
 
 def _effective_inbox():
-    """Resolve INBOX path: CLI/env config > default."""
-    return g["config"].get("inbox") or "INBOX"
+    """Configured inbox > default 'INBOX'."""
+    inbox = g["config"].get("inbox")
+    return inbox if inbox is not None else "INBOX"
+
+
+def _safe_current_tab():
+    """Return current tab, or None if the notebook has no tabs."""
+    try:
+        return _current_tab()
+    except (IndexError, tk.TclError):
+        return None
 
 
 # ---------------------------------------------------------------------------
 # Filesystem helpers
 # ---------------------------------------------------------------------------
 
-def _load_spec_file(path):
+def _load_file_into_tab(tab, path):
     try:
         with open(path, 'r', encoding='utf-8') as f:
             content = f.read()
     except OSError as e:
         show_status(f"Could not open file: {e}", error=True)
         return
-    g["top_text"].delete("1.0", "end")
-    g["top_text"].insert("1.0", content)
-    show_status(f"Opened {path}")
+    tab["text_widget"].delete("1.0", "end")
+    tab["text_widget"].insert("1.0", content)
 
 
-def _write_spec_file(path):
-    content = g["top_text"].get("1.0", "end-1c")
+def _write_spec_file(tab, path):
+    content = tab["text_widget"].get("1.0", "end-1c")
     try:
         with open(path, 'w', encoding='utf-8') as f:
             f.write(content)
@@ -596,12 +687,15 @@ def _write_spec_file(path):
     show_status(f"Saved {path}")
 
 
-def _update_title():
-    if g["current_file"]:
-        name = os.path.basename(g["current_file"])
-        g["root"].title(f"FileTalk Form Producer — {name}")
-    else:
-        g["root"].title("FileTalk Form Producer")
+def _file_dialog_initialdir():
+    project_dir = g.get("project_dir")
+    if project_dir is not None:
+        try:
+            if project_dir.is_dir():
+                return str(project_dir)
+        except (OSError, AttributeError):
+            pass
+    return None
 
 
 def _open_directory(path):

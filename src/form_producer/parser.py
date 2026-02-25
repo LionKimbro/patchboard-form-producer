@@ -65,6 +65,10 @@ def _parse_directive_line(line, directives):
         value = content[len('outbox:'):].strip()
         if value:
             directives['outbox'] = value
+    elif content.startswith('title:'):
+        value = content[len('title:'):].strip()
+        if value:
+            directives['title'] = value
     # else: plain comment, ignored
 
 
