@@ -2,7 +2,7 @@
 
 ![Form Producer screenshot](docs/img/form-producer-screenshot.png)
 
-A desktop GUI tool for the [Patchboard](https://github.com/lion/patchboard) system. You describe a form in a simple text DSL, press a key, and a live form appears. Fill it in and emit the result as a Patchboard JSON message — ready for any other Patchboard component to consume. If you're not using Patchboard, you can also copy the filled-in JSON directly to the clipboard with **Ctrl+J**.
+A desktop GUI tool for the [Patchboard](https://github.com/LionKimbro/filetalk) system. You describe a form in a simple text DSL, press a key, and a live form appears. Fill it in and emit the result as a Patchboard JSON message — ready for any other Patchboard component to consume. If you're not using Patchboard, you can also copy the filled-in JSON directly to the clipboard with **Ctrl+J**.
 
 ---
 
@@ -97,7 +97,7 @@ reported   -- date
 
 ## Emitted message format
 
-Messages follow the [FileTalk/Patchboard](https://github.com/lion/patchboard) transport format:
+[Patchboard messages](https://github.com/LionKimbro/filetalk/blob/main/docs/spec/patchboard-core.v1.json) are published following the [Patchboard FileTalk transport format](https://github.com/LionKimbro/filetalk/blob/main/docs/spec/patchboard-file-transport.v1.md):
 
 ```json
 {
@@ -158,7 +158,7 @@ Switching to a tab automatically re-renders its form from the current DSL text. 
 
 ## Configuration
 
-Form Producer uses [lionscliapp](https://github.com/lion/lionscliapp) for persistent configuration. Settings are saved in `.form-producer/config.json`.
+Form Producer uses [lionscliapp](https://github.com/LionKimbro/lionscliapp) for persistent configuration. Settings are saved in `.form-producer/config.json`.
 
 ```
 form-producer set path.outbox /path/to/my/outbox
@@ -207,7 +207,7 @@ form-producer make-card
 form-producer make-card --card-path /path/to/output.json
 ```
 
-The card format is compatible with [Patchboard Atlas](https://github.com/lion/patchboard-atlas).
+The card format is compatible with [Patchboard Atlas](https://github.com/LionKimbro/patchboard-atlas).
 
 ---
 
