@@ -4,7 +4,6 @@ import datetime
 import json
 import math
 import os
-from pathlib import Path
 import subprocess
 import sys
 import tkinter as tk
@@ -170,16 +169,13 @@ def _build_notebook(root):
 def _build_bottom_bar(root):
     bar = tk.Frame(root)
     bar.grid(row=4, column=0, sticky="ew")
-    bar.columnconfigure(1, weight=1)
-
-    btn = tk.Button(bar, text="Open OUTBOX", command=handle_open_outbox)
-    btn.grid(row=0, column=0, padx=(4, 4), pady=2)
+    bar.columnconfigure(0, weight=1)
 
     var = tk.StringVar(value="Ready — write a form spec above, then press Ctrl+Enter.")
     g["status_var"] = var
     label = tk.Label(bar, textvariable=var, anchor="w", relief="sunken",
                      padx=4, font=("TkDefaultFont", 9))
-    label.grid(row=0, column=1, sticky="ew", pady=2, padx=(0, 4))
+    label.grid(row=0, column=0, sticky="ew", pady=2, padx=4)
     g["status_label"] = label
 
 
@@ -322,7 +318,7 @@ def _build_card():
         "outbox": os.path.abspath(str(outbox)),
         "channels": {
             "in":  ["text"],
-            "out": [channel],
+            "out": [channel] if channel == "card" else [channel, "card"],
         },
     }
 
@@ -447,19 +443,16 @@ def handle_tab_close():
 
 
 def handle_emit_card():
-    """Write the component ID card to the project directory."""
+    """Emit the component ID card as a Patchboard message to the OUTBOX."""
     card = _build_card()
-    project_dir = g.get("project_dir")
-    if project_dir is not None:
-        out_path = Path(project_dir) / "form-producer.card.json"
-    else:
-        out_path = Path.cwd() / "form-producer.card.json"
+    tab = _safe_current_tab()
+    outbox = str(_effective_outbox(tab))
     try:
-        out_path.write_text(json.dumps(card, indent=2) + "\n", encoding="utf-8")
-    except OSError as e:
-        show_status(f"Could not write card: {e}", error=True)
+        filename = emit_message(card, "card", outbox)
+    except EmitError as e:
+        show_status(str(e), error=True)
         return
-    show_status(f"Card written to {out_path}")
+    show_status(f"Card emitted to {os.path.join(outbox, filename)}")
 
 
 def handle_copy_card():
