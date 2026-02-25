@@ -4,6 +4,7 @@ import datetime
 import json
 import math
 import os
+from pathlib import Path
 import subprocess
 import sys
 import tkinter as tk
@@ -22,7 +23,7 @@ _INBOX_POLL_MS = 1000
 
 _HINT_SYNTAX = '<identifier> -- <type>   # channel <ch>   # outbox <path>   # title <title>'
 _HINT_TYPES  = 'str<w>  text<w,h>  choice<a,b,...>  bool  int<w>  float<w>  json<w,h>  date  time  "fixed value"'
-_HINT_KEYS   = 'Ctrl+Enter: render   Ctrl+E: emit   Ctrl+J: copy JSON   Ctrl+S: save file   Ctrl+O: open file'
+_HINT_KEYS   = 'Ctrl+Enter: render   Ctrl+E: emit   Ctrl+J: copy JSON   Ctrl+S: save   Ctrl+O: open   Ctrl+N: new tab   Ctrl+W: close tab'
 
 
 # ---------------------------------------------------------------------------
@@ -78,39 +79,67 @@ def _setup_ui():
     root.bind("<Control-j>", lambda e: handle_copy_json())
     root.bind("<Control-s>", lambda e: handle_file_save())
     root.bind("<Control-o>", lambda e: handle_file_open())
+    root.bind("<Control-n>", lambda e: (_new_tab(), "break")[1])
+    root.bind("<Control-w>", lambda e: (handle_tab_close(), "break")[1])
     root.bind("<Control-l>", handle_ctrl_l)
 
 
 def _build_menubar(root):
     menubar = tk.Menu(root)
 
+    # ── File ─────────────────────────────────────────────────────────────
     file_menu = tk.Menu(menubar, tearoff=0)
     file_menu.add_command(
-        label="Open", underline=0, accelerator="Ctrl+O", command=handle_file_open,
+        label="Open Description", underline=0, accelerator="Ctrl+O",
+        command=handle_file_open,
     )
     file_menu.add_command(
-        label="Save", underline=0, accelerator="Ctrl+S", command=handle_file_save,
+        label="Save Description", underline=0, accelerator="Ctrl+S",
+        command=handle_file_save,
     )
+    file_menu.add_separator()
+    file_menu.add_command(label="Exit", underline=1, command=handle_exit)
     menubar.add_cascade(label="File", menu=file_menu, underline=0)
 
-    tab_menu = tk.Menu(menubar, tearoff=0)
-    tab_menu.add_command(label="New",   underline=0, command=lambda: _new_tab())
-    tab_menu.add_command(label="Close", underline=0, command=handle_tab_close)
-    menubar.add_cascade(label="Tab", menu=tab_menu, underline=0)
+    # ── Tabs ─────────────────────────────────────────────────────────────
+    tabs_menu = tk.Menu(menubar, tearoff=0)
+    tabs_menu.add_command(
+        label="New Tab",   underline=0, accelerator="Ctrl+N",
+        command=lambda: _new_tab(),
+    )
+    tabs_menu.add_command(
+        label="Close Tab", underline=0, accelerator="Ctrl+W",
+        command=handle_tab_close,
+    )
+    menubar.add_cascade(label="Tabs", menu=tabs_menu, underline=0)
 
-    route_menu = tk.Menu(menubar, tearoff=0)
-    route_menu.add_command(
-        label="Emit to Patchboard", underline=0, accelerator="Ctrl+E", command=handle_emit,
+    # ── Patchboard ───────────────────────────────────────────────────────
+    pb_menu = tk.Menu(menubar, tearoff=0)
+    pb_menu.add_command(
+        label=f"Emit JSON to: {_effective_channel()}",
+        underline=0, accelerator="Ctrl+E",
+        command=handle_emit,
     )
-    route_menu.add_command(
-        label="Copy JSON", underline=0, accelerator="Ctrl+J", command=handle_copy_json,
+    pb_menu.add_command(
+        label="Emit component card to: card",
+        command=handle_emit_card,
     )
-    route_menu.add_separator()
-    route_menu.add_command(
-        label="Create Inbox", underline=0, command=handle_create_inbox,
+    pb_menu.add_separator()
+    pb_menu.add_command(
+        label="Copy JSON to clipboard",
+        underline=0, accelerator="Ctrl+J",
+        command=handle_copy_json,
     )
-    menubar.add_cascade(label="Route", menu=route_menu, underline=0)
+    pb_menu.add_command(
+        label="Copy component card to clipboard",
+        command=handle_copy_card,
+    )
+    pb_menu.add_separator()
+    pb_menu.add_command(label="Open Inbox",  underline=5, command=handle_open_inbox)
+    pb_menu.add_command(label="Open Outbox", underline=5, command=handle_open_outbox)
+    menubar.add_cascade(label="Patchboard", menu=pb_menu, underline=0)
 
+    g["patchboard_menu"] = pb_menu
     root.config(menu=menubar)
 
 
@@ -269,6 +298,33 @@ def _auto_render_tab(tab):
     tab["directives"] = directives
     _update_tab_label(tab)
     _render_form_in_tab(tab, fields)
+    _update_emit_label()
+
+
+def _update_emit_label():
+    """Refresh the 'Emit JSON to: <channel>' menu item to reflect the current tab."""
+    if "patchboard_menu" not in g:
+        return
+    tab = _safe_current_tab()
+    channel = _effective_channel(tab)
+    g["patchboard_menu"].entryconfig(0, label=f"Emit JSON to: {channel}")
+
+
+def _build_card():
+    """Build a Patchboard component ID card dict from the current config."""
+    inbox   = g["config"].get("inbox")  or "INBOX"
+    outbox  = g["config"].get("outbox") or "OUTBOX"
+    channel = g["config"].get("channel") or "output"
+    return {
+        "schema_version": 1,
+        "title": "FileTalk Form Producer",
+        "inbox":  os.path.abspath(str(inbox)),
+        "outbox": os.path.abspath(str(outbox)),
+        "channels": {
+            "in":  ["text"],
+            "out": [channel],
+        },
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -288,6 +344,7 @@ def handle_ctrl_enter(event):
     tab["directives"] = directives
     _update_tab_label(tab)
     _render_form_in_tab(tab, fields)
+    _update_emit_label()
 
     channel = _effective_channel(tab)
     outbox  = _effective_outbox(tab)
@@ -320,6 +377,10 @@ def handle_emit():
 def handle_ctrl_l(event):
     _clear_status()
     return "break"
+
+
+def handle_exit():
+    g["root"].destroy()
 
 
 def handle_copy_json():
@@ -385,17 +446,39 @@ def handle_tab_close():
     g["tabs"].pop(idx)
 
 
-def handle_create_inbox():
-    inbox_abs = os.path.abspath(str(_effective_inbox()))
-    if os.path.isdir(inbox_abs):
-        show_status(f"INBOX already exists: {inbox_abs}")
-        return
+def handle_emit_card():
+    """Write the component ID card to the project directory."""
+    card = _build_card()
+    project_dir = g.get("project_dir")
+    if project_dir is not None:
+        out_path = Path(project_dir) / "form-producer.card.json"
+    else:
+        out_path = Path.cwd() / "form-producer.card.json"
     try:
-        os.makedirs(inbox_abs)
+        out_path.write_text(json.dumps(card, indent=2) + "\n", encoding="utf-8")
     except OSError as e:
-        show_status(f"Could not create INBOX: {e}", error=True)
+        show_status(f"Could not write card: {e}", error=True)
         return
-    show_status(f"Created INBOX: {inbox_abs}")
+    show_status(f"Card written to {out_path}")
+
+
+def handle_copy_card():
+    """Copy the component ID card JSON to the clipboard."""
+    card = _build_card()
+    json_str = json.dumps(card, indent=2)
+    g["root"].clipboard_clear()
+    g["root"].clipboard_append(json_str)
+    show_status("Component card copied to clipboard.")
+
+
+def handle_open_inbox():
+    inbox_abs = os.path.abspath(str(_effective_inbox()))
+    if not os.path.isdir(inbox_abs):
+        try:
+            os.makedirs(inbox_abs)
+        except OSError as e:
+            show_status(f"Could not create Inbox: {e}", error=True)
+            return
     _open_directory(inbox_abs)
 
 
@@ -403,8 +486,11 @@ def handle_open_outbox():
     tab = _safe_current_tab()
     outbox_abs = os.path.abspath(str(_effective_outbox(tab)))
     if not os.path.isdir(outbox_abs):
-        show_status(f"OUTBOX does not exist yet: {outbox_abs}", error=True)
-        return
+        try:
+            os.makedirs(outbox_abs)
+        except OSError as e:
+            show_status(f"Could not create Outbox: {e}", error=True)
+            return
     _open_directory(outbox_abs)
 
 
