@@ -7,7 +7,7 @@ import os
 import subprocess
 import sys
 import tkinter as tk
-from tkinter import filedialog, ttk
+from tkinter import filedialog, messagebox, ttk
 
 from .parser import ParseError, parse_spec
 from .emitter import EmitError, build_message, emit_message
@@ -45,7 +45,8 @@ def run(config):
     g["project_dir"] = config.get("project_dir")  # Path or None
 
     _setup_ui()
-    _new_tab()  # Start with one empty tab
+    if not _try_restore_session():
+        _new_tab()  # Nothing saved — start with one empty tab
     _start_inbox_polling()
     g["root"].mainloop()
 
@@ -86,23 +87,38 @@ def _setup_ui():
     root.bind("<Control-Up>",    handle_focus_dsl)
     root.bind("<Escape>",        handle_escape)
     root.bind("<Control-l>", handle_ctrl_l)
+    root.protocol("WM_DELETE_WINDOW", handle_exit)
 
 
 def _build_menubar(root):
     menubar = tk.Menu(root)
 
     # ── File ─────────────────────────────────────────────────────────────
-    file_menu = tk.Menu(menubar, tearoff=0)
+    file_menu = tk.Menu(menubar, tearoff=0, postcommand=_update_revert_state)
     file_menu.add_command(
-        label="Open Description", underline=0, accelerator="Ctrl+O",
+        label="Open Description",   underline=0, accelerator="Ctrl+O",
         command=handle_file_open,
     )
     file_menu.add_command(
-        label="Save Description", underline=0, accelerator="Ctrl+S",
-        command=handle_file_save,
+        label="Close Description",  underline=0,
+        command=handle_close_description,
+    )
+    file_menu.add_command(
+        label="Revert Description", underline=0, state="disabled",
+        command=handle_revert_description,
+    )
+    file_menu.add_separator()
+    file_menu.add_command(
+        label="Open Collection",    underline=5,
+        command=handle_open_collection,
+    )
+    file_menu.add_command(
+        label="Save Collection",    underline=5,
+        command=handle_save_collection,
     )
     file_menu.add_separator()
     file_menu.add_command(label="Exit", underline=1, command=handle_exit)
+    g["file_menu"] = file_menu
     menubar.add_cascade(label="File", menu=file_menu, underline=0)
 
     # ── Tabs ─────────────────────────────────────────────────────────────
@@ -303,6 +319,7 @@ def _on_tab_changed(event):
     except (IndexError, tk.TclError):
         return
     _auto_render_tab(tab)
+    _update_revert_state()
 
 
 def _auto_render_tab(tab):
@@ -420,7 +437,74 @@ def handle_escape(event):
 
 
 def handle_exit():
+    # Ask whether to save modified file-backed tabs.
+    modified = [t for t in g["tabs"] if _tab_has_unsaved_changes(t)]
+    if modified:
+        result = messagebox.askyesnocancel(
+            "Save Changes",
+            "Save changes to opened files before exiting?",
+            parent=g["root"],
+        )
+        if result is None:      # Cancel
+            return
+        if result:              # Yes — save each modified tab
+            for t in modified:
+                _write_spec_file(t, t["filename"])
+
+    # Auto-save session.
+    _save_session()
     g["root"].destroy()
+
+
+def handle_close_description():
+    handle_tab_close()
+
+
+def handle_revert_description():
+    tab = _current_tab()
+    if not tab["filename"]:
+        show_status("No file associated with this tab — cannot revert.", error=True)
+        return
+    _load_file_into_tab(tab, tab["filename"])
+    _auto_render_tab(tab)
+    show_status(f"Reverted to {tab['filename']}")
+
+
+def handle_open_collection():
+    path = filedialog.askopenfilename(
+        title="Open Collection",
+        initialdir=_file_dialog_initialdir(),
+        filetypes=[("Collection files", "*.json"), ("All files", "*.*")],
+    )
+    if not path:
+        return
+    try:
+        with open(path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+    except (OSError, json.JSONDecodeError) as e:
+        show_status(f"Could not open collection: {e}", error=True)
+        return
+    _restore_collection(data)
+    show_status(f"Collection loaded from {path}")
+
+
+def handle_save_collection():
+    path = filedialog.asksaveasfilename(
+        title="Save Collection",
+        initialdir=_file_dialog_initialdir(),
+        defaultextension=".json",
+        filetypes=[("Collection files", "*.json"), ("All files", "*.*")],
+    )
+    if not path:
+        return
+    try:
+        with open(path, 'w', encoding='utf-8') as f:
+            json.dump(_build_collection(), f, indent=2)
+            f.write('\n')
+    except OSError as e:
+        show_status(f"Could not save collection: {e}", error=True)
+        return
+    show_status(f"Collection saved to {path}")
 
 
 def handle_copy_json():
@@ -455,6 +539,7 @@ def handle_file_open():
         return
     tab = _new_tab(text=content, filename=path)
     _auto_render_tab(tab)
+    _update_revert_state()
     show_status(f"Opened {path}")
 
 
@@ -473,6 +558,7 @@ def handle_file_save():
             return
         tab["filename"] = path
         _update_tab_label(tab)
+        _update_revert_state()
         _write_spec_file(tab, path)
 
 
@@ -770,6 +856,113 @@ def _read_widget_from_tab(tab, fid, ftype):
     if ftype == "fixed":
         return None  # handled directly from field["value"]
     return tab["widgets"][fid].get()
+
+
+# ---------------------------------------------------------------------------
+# Session / collection persistence
+# ---------------------------------------------------------------------------
+
+def _session_path():
+    """Return the auto-save session file path, or None if no project dir."""
+    project_dir = g.get("project_dir")
+    if project_dir is None:
+        return None
+    return os.path.join(str(project_dir), "session.json")
+
+
+def _build_collection():
+    """Serialise the current tab state to a dict."""
+    try:
+        active_index = g["notebook"].index("current")
+    except tk.TclError:
+        active_index = 0
+    tabs_data = []
+    for tab in g["tabs"]:
+        tabs_data.append({
+            "filename": tab["filename"],
+            "text":     tab["text_widget"].get("1.0", "end-1c"),
+        })
+    return {"version": 1, "active_index": active_index, "tabs": tabs_data}
+
+
+def _restore_collection(data):
+    """Replace all tabs with those described in data."""
+    if not isinstance(data, dict) or data.get("version") != 1:
+        show_status("Cannot load collection: unrecognised format.", error=True)
+        return
+
+    # Remove all current tabs.
+    for tab in list(g["tabs"]):
+        g["notebook"].forget(tab["frame"])
+    g["tabs"].clear()
+    g["untitled_count"] = 0
+
+    tabs_data = data.get("tabs") or []
+    if not tabs_data:
+        _new_tab()
+        return
+
+    for tab_data in tabs_data:
+        filename = tab_data.get("filename")
+        text     = tab_data.get("text") or ""
+        _new_tab(text=text, filename=filename)
+        # _on_tab_changed → _auto_render_tab fires automatically on select.
+
+    active = data.get("active_index", 0)
+    if 0 <= active < len(g["tabs"]):
+        g["notebook"].select(active)
+
+    _update_revert_state()
+
+
+def _save_session():
+    """Write the current session to the project dir (best-effort)."""
+    path = _session_path()
+    if not path:
+        return
+    try:
+        with open(path, 'w', encoding='utf-8') as f:
+            json.dump(_build_collection(), f, indent=2)
+            f.write('\n')
+    except OSError:
+        pass
+
+
+def _try_restore_session():
+    """Load session.json from the project dir if it exists. Returns True on success."""
+    path = _session_path()
+    if not path or not os.path.isfile(path):
+        return False
+    try:
+        with open(path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return False
+    _restore_collection(data)
+    return len(g["tabs"]) > 0
+
+
+def _tab_has_unsaved_changes(tab):
+    """Return True if a file-backed tab's text differs from what's on disk."""
+    if not tab["filename"]:
+        return False
+    try:
+        with open(tab["filename"], 'r', encoding='utf-8') as f:
+            saved = f.read()
+        return tab["text_widget"].get("1.0", "end-1c") != saved
+    except OSError:
+        return False
+
+
+def _update_revert_state():
+    """Enable or disable 'Revert Description' based on the current tab."""
+    if "file_menu" not in g:
+        return
+    tab = _safe_current_tab()
+    has_file = tab is not None and bool(tab["filename"])
+    g["file_menu"].entryconfig(
+        "Revert Description", state="normal" if has_file else "disabled"
+    )
 
 
 # ---------------------------------------------------------------------------
